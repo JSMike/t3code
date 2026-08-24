@@ -85,6 +85,11 @@ For a local Git repository without a remote, **Publish Repository** creates a ho
 adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;
 make your first commit before pushing.
 
+## Choose a worktree branch prefix
+
+Generated worktree branch names start with `t3code/` by default. In **Settings → General → Worktree branch
+prefix**, enter a custom prefix or clear the field to use no prefix.
+
 ## Create a pull request
 
 Use a thread's Git actions to commit, push, and create a pull request. T3 Code can generate commit
