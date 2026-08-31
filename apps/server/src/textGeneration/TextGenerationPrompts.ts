@@ -9,7 +9,7 @@
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import { limitTitleMessage } from "./ThreadTitleContext.ts";
-import type { ChatAttachment } from "@t3tools/contracts";
+import type { ChatAttachment, T3ProjectFileTextGenerationPrompts } from "@t3tools/contracts";
 
 import { limitSection } from "./TextGenerationUtils.ts";
 import type { TextGenerationPolicy } from "./TextGenerationPolicy.ts";
@@ -31,24 +31,40 @@ export interface CommitMessagePromptInput {
   stagedPatch: string;
   includeBranch?: boolean;
   policy?: TextGenerationPolicy | undefined;
+  prompts?: T3ProjectFileTextGenerationPrompts | undefined;
 }
 
 export function buildCommitMessagePrompt(input: CommitMessagePromptInput) {
   const wantsBranch = input.includeBranch === true;
+  const commitOverride = input.prompts?.commitMessage;
+  const branchOverride = wantsBranch ? input.prompts?.branchName : undefined;
+  const responseShape = wantsBranch
+    ? "Return a JSON object with keys: subject, body, branch."
+    : "Return a JSON object with keys: subject, body.";
 
   const prompt = [
-    "You write concise git commit messages.",
-    wantsBranch
-      ? "Return a JSON object with keys: subject, body, branch."
-      : "Return a JSON object with keys: subject, body.",
+    ...(commitOverride === undefined
+      ? ["You write concise git commit messages."]
+      : ["Commit message instructions:", commitOverride]),
+    responseShape,
     "Rules:",
-    "- subject must be imperative, <= 72 chars, and no trailing period",
-    "- body can be empty string or short bullet points",
-    ...(wantsBranch
-      ? ["- branch must be a short semantic git branch fragment for this change"]
+    ...(commitOverride === undefined
+      ? [
+          "- subject must be imperative, <= 72 chars, and no trailing period",
+          "- body can be empty string or short bullet points",
+        ]
       : []),
-    "- capture the primary user-visible or developer-visible change",
-    ...policyInstruction(input.policy?.commitInstructions),
+    ...(wantsBranch
+      ? branchOverride === undefined
+        ? ["- branch must be a short semantic git branch fragment for this change"]
+        : ["Branch name instructions:", branchOverride]
+      : []),
+    ...(commitOverride === undefined
+      ? [
+          "- capture the primary user-visible or developer-visible change",
+          ...policyInstruction(input.policy?.commitInstructions),
+        ]
+      : []),
     "",
     `Branch: ${input.branch ?? "(detached)"}`,
     "",
@@ -91,10 +107,12 @@ export interface PrContentPromptInput {
   diffPatch: string;
   changeRequestTemplate?: string | undefined;
   policy?: TextGenerationPolicy | undefined;
+  prompts?: T3ProjectFileTextGenerationPrompts | undefined;
 }
 
 export function buildPrContentPrompt(input: PrContentPromptInput) {
   const changeRequestTemplate = input.changeRequestTemplate?.trim();
+  const customPrompt = input.prompts?.changeRequest;
   const bodyRules = changeRequestTemplate
     ? [
         "- body must be markdown and follow the repository change request template structure",
@@ -107,15 +125,27 @@ export function buildPrContentPrompt(input: PrContentPromptInput) {
         "- under Summary, provide short bullet points",
         "- under Testing, include bullet points with concrete checks or 'Not run' where appropriate",
       ];
+  const instructions =
+    customPrompt === undefined
+      ? [
+          "You write source control change request content.",
+          "Return a JSON object with keys: title, body.",
+          "Rules:",
+          "- title should be concise and specific",
+          ...bodyRules,
+          ...policyInstruction(input.policy?.changeRequestInstructions),
+        ]
+      : [customPrompt, "Return a JSON object with string keys: title, body."];
   const prompt = [
-    "You write source control change request content.",
-    "Return a JSON object with keys: title, body.",
-    "Rules:",
-    "- title should be concise and specific",
-    ...bodyRules,
-    ...policyInstruction(input.policy?.changeRequestInstructions),
+    ...instructions,
     ...(changeRequestTemplate
-      ? ["", "Repository change request template:", limitSection(changeRequestTemplate, 8_000)]
+      ? [
+          "",
+          customPrompt === undefined
+            ? "Repository change request template:"
+            : "Repository change request template for reference:",
+          limitSection(changeRequestTemplate, 8_000),
+        ]
       : []),
     "",
     `Base branch: ${input.baseBranch}`,
@@ -147,6 +177,7 @@ export interface BranchNamePromptInput {
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   policy?: TextGenerationPolicy | undefined;
+  prompts?: T3ProjectFileTextGenerationPrompts | undefined;
 }
 
 interface PromptFromMessageInput {
@@ -185,18 +216,23 @@ function buildPromptFromMessage(input: PromptFromMessageInput): string {
 }
 
 export function buildBranchNamePrompt(input: BranchNamePromptInput) {
+  const customPrompt = input.prompts?.branchName;
   const prompt = buildPromptFromMessage({
-    instruction: "You generate concise git branch names.",
+    instruction: customPrompt ?? "You generate concise git branch names.",
     responseShape: "Return a JSON object with key: branch.",
-    rules: [
-      "Branch should describe the requested work from the user message.",
-      "Keep it short and specific (2-6 words).",
-      "Use plain words only, no issue prefixes and no punctuation-heavy text.",
-      "If images are attached, use them as primary context for visual/UI issues.",
-    ],
+    rules:
+      customPrompt === undefined
+        ? [
+            "Branch should describe the requested work from the user message.",
+            "Keep it short and specific (2-6 words).",
+            "Use plain words only, no issue prefixes and no punctuation-heavy text.",
+            "If images are attached, use them as primary context for visual/UI issues.",
+          ]
+        : [],
     message: input.message,
     attachments: input.attachments,
-    additionalInstructions: input.policy?.branchInstructions,
+    additionalInstructions:
+      customPrompt === undefined ? input.policy?.branchInstructions : undefined,
   });
   const outputSchema = Schema.Struct({
     branch: Schema.String,
@@ -215,6 +251,7 @@ export interface ThreadTitlePromptInput {
   previousTitle?: string | undefined;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   policy?: TextGenerationPolicy | undefined;
+  prompts?: T3ProjectFileTextGenerationPrompts | undefined;
 }
 
 // Keep shared editorial rules in these two prompts in sync. Regeneration
@@ -313,7 +350,28 @@ function threadTitlePromptSuffix(input: ThreadTitlePromptInput): string {
 
 export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
   let prompt: string;
-  if (input.previousTitle === undefined) {
+  const customPrompt =
+    input.previousTitle === undefined
+      ? input.prompts?.threadTitle
+      : (input.prompts?.threadTitleRegeneration ?? input.prompts?.threadTitle);
+  if (customPrompt !== undefined) {
+    const messageLabel = input.previousTitle === undefined ? "User message" : "Thread contents";
+    const message =
+      input.previousTitle === undefined
+        ? limitTitleMessage(input.message, 8_000)
+        : preserveMessageEnd(input.message);
+    prompt = [
+      customPrompt,
+      "Return JSON with keys title (string) and needsRefinement (boolean). Set needsRefinement to false.",
+      ...(input.previousTitle === undefined
+        ? []
+        : ["", `Previous title: ${JSON.stringify(input.previousTitle)}`]),
+      "",
+      `${messageLabel}:`,
+      message,
+      threadTitlePromptSuffix({ ...input, policy: undefined }),
+    ].join("\n");
+  } else if (input.previousTitle === undefined) {
     const message = limitTitleMessage(input.message, 8_000);
     prompt = `${INITIAL_THREAD_TITLE_PROMPT}\n\nUser message:\n${message}${threadTitlePromptSuffix(input)}`;
   } else {

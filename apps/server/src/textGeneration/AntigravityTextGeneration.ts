@@ -347,14 +347,23 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
           stagedPatch: input.stagedPatch,
           includeBranch: input.includeBranch === true,
           policy: input.policy,
+          prompts: input.prompts,
         }),
         modelSelection: input.modelSelection,
       });
       return {
-        subject: sanitizeCommitSubject(generated.subject),
+        subject: sanitizeCommitSubject(
+          generated.subject,
+          input.prompts?.commitMessage !== undefined,
+        ),
         body: generated.body.trim(),
         ...("branch" in generated && typeof generated.branch === "string"
-          ? { branch: sanitizeFeatureBranchName(generated.branch) }
+          ? {
+              branch:
+                input.prompts?.branchName === undefined
+                  ? sanitizeFeatureBranchName(generated.branch)
+                  : generated.branch.trim(),
+            }
           : {}),
       };
     });
@@ -370,6 +379,7 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
           diffSummary: input.diffSummary,
           diffPatch: input.diffPatch,
           policy: input.policy,
+          prompts: input.prompts,
           changeRequestTemplate: input.changeRequestTemplate,
         }),
         modelSelection: input.modelSelection,
@@ -381,10 +391,19 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
     Effect.fn("AntigravityTextGeneration.generateBranchName")(function* (input) {
       const generated = yield* runAntigravityJson({
         operation: "generateBranchName",
-        ...buildBranchNamePrompt({ message: input.message, attachments: input.attachments }),
+        ...buildBranchNamePrompt({
+          message: input.message,
+          attachments: input.attachments,
+          prompts: input.prompts,
+        }),
         modelSelection: input.modelSelection,
       });
-      return { branch: sanitizeBranchFragment(generated.branch) };
+      return {
+        branch:
+          input.prompts?.branchName === undefined
+            ? sanitizeBranchFragment(generated.branch)
+            : generated.branch.trim(),
+      };
     });
 
   const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
@@ -396,11 +415,17 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
           previousTitle: input.previousTitle,
           linkedContext: input.linkedContext,
           attachments: input.attachments,
+          prompts: input.prompts,
         }),
         modelSelection: input.modelSelection,
       });
       return {
-        title: sanitizeThreadTitle(generated.title),
+        title: sanitizeThreadTitle(
+          generated.title,
+          (input.previousTitle === undefined
+            ? input.prompts?.threadTitle
+            : (input.prompts?.threadTitleRegeneration ?? input.prompts?.threadTitle)) !== undefined,
+        ),
         ...(generated.needsRefinement ? { needsRefinement: true } : {}),
       };
     });

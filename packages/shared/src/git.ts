@@ -81,6 +81,23 @@ export function resolveAutoFeatureBranchName(
   return `${resolvedBase}-${suffix}`;
 }
 
+/** Resolve an exact generated branch name without changing its spelling. */
+export function resolveAvailableGeneratedBranchName(
+  existingBranchNames: readonly string[],
+  preferredBranch: string,
+): string {
+  const existingNames = new Set(existingBranchNames);
+  if (!existingNames.has(preferredBranch)) {
+    return preferredBranch;
+  }
+
+  let suffix = 1;
+  while (existingNames.has(`${preferredBranch}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${preferredBranch}-${suffix}`;
+}
+
 /**
  * Strip the remote prefix from a remote ref such as `origin/feature/demo`.
  */

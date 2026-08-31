@@ -10,6 +10,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSetupError,
+  type T3ProjectFileTextGenerationPrompts,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import {
@@ -35,6 +36,7 @@ import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { ChildProcessSpawner } from "effect/unstable/process";
 import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -55,6 +57,7 @@ import {
 import { ProviderAuthService } from "../../provider/Services/ProviderAuthService.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
+import { TextGenerationPromptResolver } from "../../textGeneration/TextGenerationPromptResolver.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
@@ -74,6 +77,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerActivation } from "../../serverActivation.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
+import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
@@ -187,6 +191,7 @@ describe("ProviderCommandReactor", () => {
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession, ProviderServiceError>;
     readonly tryHandlePromptCommandEffect?: ProviderAuthService["Service"]["tryHandlePromptCommand"];
+    readonly prompts?: T3ProjectFileTextGenerationPrompts;
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir =
@@ -345,6 +350,18 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     );
+    const promptResolverCwds: string[] = [];
+    const validateBranch = vi.fn<GitVcsDriver.GitVcsDriver["Service"]["execute"]>((request) => {
+      const candidate = request.args.at(-1) ?? "";
+      const isValid = candidate.length > 0 && candidate !== "bad..branch";
+      return Effect.succeed({
+        exitCode: ChildProcessSpawner.ExitCode(isValid ? 0 : 1),
+        stdout: isValid ? `${candidate}\n` : "",
+        stderr: "",
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      });
+    });
     const providerSnapshots = [
       {
         instanceId: modelSelection.instanceId,
@@ -490,6 +507,23 @@ describe("ProviderCommandReactor", () => {
           generateThreadTitle,
         }),
       ),
+      Layer.provideMerge(
+        Layer.succeed(
+          TextGenerationPromptResolver,
+          TextGenerationPromptResolver.of({
+            resolve: (cwd) =>
+              Effect.sync(() => {
+                promptResolverCwds.push(cwd);
+                return input?.prompts;
+              }),
+          }),
+        ),
+      ),
+      Layer.provideMerge(
+        Layer.mock(GitVcsDriver.GitVcsDriver)({
+          execute: validateBranch,
+        }),
+      ),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
@@ -624,6 +658,8 @@ describe("ProviderCommandReactor", () => {
       refreshStatus,
       generateBranchName,
       generateThreadTitle,
+      promptResolverCwds,
+      validateBranch,
       runtimeSessions,
       stateDir,
       drain,
@@ -1771,7 +1807,9 @@ describe("ProviderCommandReactor", () => {
   });
 
   it("regenerates a thread title from the current conversation", async () => {
-    const harness = await createHarness();
+    const harness = await createHarness({
+      prompts: { threadTitleRegeneration: "Replace the existing title exactly." },
+    });
     const now = "2026-01-01T00:00:00.000Z";
     harness.generateThreadTitle.mockReturnValue(
       Effect.succeed({ title: "Resolve stale reconnect state" }),
@@ -1835,6 +1873,7 @@ describe("ProviderCommandReactor", () => {
     expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
       cwd: "/tmp/provider-project",
       previousTitle: "Investigate reconnect regressions",
+      prompts: { threadTitleRegeneration: "Replace the existing title exactly." },
       message: [
         "USER:",
         "Please investigate reconnect regressions after restarting the session.",
@@ -2601,6 +2640,143 @@ describe("ProviderCommandReactor", () => {
         .find((entry) => entry.id === ThreadId.make("thread-1"))
         ?.messages.find((entry) => entry.id === asMessageId("user-message-branch-model"))?.text,
     ).toBe(prompt);
+  });
+
+  it("uses custom prompts for the first title and exact worktree branch name", async () => {
+    const harness = await createHarness({
+      prompts: {
+        branchName: "Return the complete branch name.",
+        threadTitle: "Return the exact thread title.",
+      },
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const titleInput = await harness.runEffect(
+      Deferred.make<Parameters<TextGeneration["Service"]["generateThreadTitle"]>[0]>(),
+    );
+    const branchRefresh = await harness.runEffect(Deferred.make<void>());
+
+    harness.generateBranchName.mockReturnValue(Effect.succeed({ branch: "Team/Fix.v2" }));
+    harness.generateThreadTitle.mockImplementation((input) =>
+      Deferred.succeed(titleInput, input).pipe(Effect.as({ title: "Exact Mixed-Case Title" })),
+    );
+    const refreshStatusImplementation = harness.refreshStatus.getMockImplementation();
+    if (!refreshStatusImplementation) {
+      throw new Error("Expected a refresh-status implementation");
+    }
+    harness.refreshStatus.mockImplementation((cwd) =>
+      refreshStatusImplementation(cwd).pipe(
+        Effect.tap(() => Deferred.succeed(branchRefresh, undefined)),
+      ),
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-custom-branch"),
+        threadId: ThreadId.make("thread-1"),
+        title: "New thread",
+        branch: "t3code/1234abcd",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-custom-prompts"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-custom-prompts"),
+          role: "user",
+          text: "Keep the generated names exact.",
+          attachments: [],
+        },
+        titleSeed: "Keep the generated names exact.",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    const generatedTitleInput = await harness.runEffect(Deferred.await(titleInput));
+    await harness.runEffect(Deferred.await(branchRefresh));
+
+    expect(generatedTitleInput.prompts?.threadTitle).toBe("Return the exact thread title.");
+    expect(harness.generateBranchName.mock.calls[0]?.[0].prompts?.branchName).toBe(
+      "Return the complete branch name.",
+    );
+    expect(harness.promptResolverCwds).toEqual(["/tmp/provider-project-worktree"]);
+    expect(harness.validateBranch.mock.calls[0]?.[0].args).toEqual([
+      "check-ref-format",
+      "--branch",
+      "Team/Fix.v2",
+    ]);
+    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+      oldBranch: "t3code/1234abcd",
+      newBranch: "Team/Fix.v2",
+    });
+    const readModel = await harness.readModel();
+    expect(
+      readModel.threads.find((thread) => thread.id === ThreadId.make("thread-1"))?.branch,
+    ).toBe("Team/Fix.v2");
+  });
+
+  it("keeps the temporary branch when a custom branch name is invalid", async () => {
+    const harness = await createHarness({
+      prompts: { branchName: "Return the complete branch name." },
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    let signalValidation: (() => void) | undefined;
+    const validationFinished = new Promise<void>((resolve) => {
+      signalValidation = resolve;
+    });
+
+    harness.generateBranchName.mockReturnValue(Effect.succeed({ branch: "bad..branch" }));
+    harness.validateBranch.mockImplementation(() =>
+      Effect.sync(() => {
+        signalValidation?.();
+        return {
+          exitCode: ChildProcessSpawner.ExitCode(1),
+          stdout: "",
+          stderr: "invalid branch",
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        };
+      }),
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-thread-invalid-custom-branch"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "t3code/1234abcd",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-invalid-custom-branch"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-invalid-custom-branch"),
+          role: "user",
+          text: "Generate an invalid branch.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await validationFinished;
+
+    expect(harness.renameBranch).not.toHaveBeenCalled();
+    const readModel = await harness.readModel();
+    expect(
+      readModel.threads.find((thread) => thread.id === ThreadId.make("thread-1"))?.branch,
+    ).toBe("t3code/1234abcd");
   });
 
   it("recreates a missing worktree from the thread branch before starting a turn", async () => {

@@ -35,6 +35,7 @@ import {
   type SourceControlProviderKind,
   type SourceControlWritingStyleSettings,
   type ThreadId,
+  type T3ProjectFileTextGenerationPrompts,
 } from "@t3tools/contracts";
 import {
   hasProjectSettingsOverrides,
@@ -45,6 +46,7 @@ import {
   detectSourceControlProviderFromGitRemoteUrl,
   mergeGitStatusParts,
   normalizeGitRemoteUrl,
+  resolveAvailableGeneratedBranchName,
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
   sanitizeFeatureBranchName,
@@ -57,6 +59,8 @@ import {
 
 import { GitManagerError, GitPullRequestMaterializationError } from "@t3tools/contracts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as TextGenerationPromptResolver from "../textGeneration/TextGenerationPromptResolver.ts";
+import { sanitizeCommitSubject } from "../textGeneration/TextGenerationUtils.ts";
 import {
   conventionalCommitsTextGenerationPolicy,
   customTextGenerationPolicy,
@@ -71,6 +75,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import { detectPrTemplate } from "../sourceControl/PrTemplateDetection.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
+import { validateGeneratedBranchName } from "./GeneratedBranchName.ts";
 
 export interface GitActionProgressReporter {
   readonly publish: (event: GitActionProgressEvent) => Effect.Effect<void, never>;
@@ -96,6 +101,7 @@ export type GitBranchPullRequest = NonNullable<VcsStatusResult["pr"]> & {
 interface SourceControlTextGenerationSettings {
   readonly modelSelection: ModelSelection;
   readonly style: SourceControlWritingStyleSettings;
+  readonly prompts?: T3ProjectFileTextGenerationPrompts | undefined;
 }
 
 export class GitManager extends Context.Service<
@@ -526,20 +532,28 @@ function summarizeGitActionResult(
   return { title: "Done" };
 }
 
-function sanitizeCommitMessage(generated: {
-  subject: string;
-  body: string;
-  branch?: string | undefined;
-}): {
+function sanitizeCommitMessage(
+  generated: {
+    subject: string;
+    body: string;
+    branch?: string | undefined;
+  },
+  preserveCustomOutput: boolean,
+): {
   subject: string;
   body: string;
   branch?: string | undefined;
 } {
-  const rawSubject = generated.subject.trim().split(/\r?\n/g)[0]?.trim() ?? "";
-  const subject = rawSubject.replace(/[.]+$/g, "").trim();
-  const safeSubject = subject.length > 0 ? subject.slice(0, 72).trimEnd() : "Update project files";
+  if (preserveCustomOutput) {
+    return {
+      subject: sanitizeCommitSubject(generated.subject, true),
+      body: generated.body.trim(),
+      ...(generated.branch !== undefined ? { branch: generated.branch } : {}),
+    };
+  }
+
   return {
-    subject: safeSubject,
+    subject: sanitizeCommitSubject(generated.subject),
     body: generated.body.trim(),
     ...(generated.branch !== undefined ? { branch: generated.branch } : {}),
   };
@@ -697,6 +711,8 @@ export const make = Effect.gen(function* () {
   const gitCore = yield* GitVcsDriver.GitVcsDriver;
   const sourceControlProviders = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const textGeneration = yield* TextGeneration.TextGeneration;
+  const textGenerationPromptResolver =
+    yield* TextGenerationPromptResolver.TextGenerationPromptResolver;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const crypto = yield* Crypto.Crypto;
@@ -1855,17 +1871,37 @@ export const make = Effect.gen(function* () {
 
       const customCommit = parseCustomCommitMessage(input.commitMessage ?? "");
       if (customCommit) {
+        const commitMessage = formatCommitMessage(customCommit.subject, customCommit.body);
+        let branch: string | undefined;
+        if (input.includeBranch) {
+          branch =
+            input.settings.prompts?.branchName !== undefined
+              ? (yield* textGeneration.generateBranchName({
+                  cwd: input.cwd,
+                  message: [
+                    commitMessage,
+                    "",
+                    "Staged changes:",
+                    limitContext(context.stagedSummary, 8_000),
+                    limitContext(context.stagedPatch, 50_000),
+                  ].join("\n"),
+                  prompts: input.settings.prompts,
+                  modelSelection: input.settings.modelSelection,
+                })).branch
+              : sanitizeFeatureBranchName(customCommit.subject);
+        }
         return {
           subject: customCommit.subject,
           body: customCommit.body,
-          ...(input.includeBranch
-            ? { branch: sanitizeFeatureBranchName(customCommit.subject) }
-            : {}),
-          commitMessage: formatCommitMessage(customCommit.subject, customCommit.body),
+          ...(branch !== undefined ? { branch } : {}),
+          commitMessage,
         };
       }
 
-      const policy = yield* resolveStylePolicy(input.cwd, input.settings);
+      const policy =
+        input.settings.prompts?.commitMessage !== undefined
+          ? undefined
+          : yield* resolveStylePolicy(input.cwd, input.settings);
 
       const generated = yield* textGeneration
         .generateCommitMessage({
@@ -1875,9 +1911,14 @@ export const make = Effect.gen(function* () {
           stagedPatch: limitContext(context.stagedPatch, 50_000),
           ...(input.includeBranch ? { includeBranch: true } : {}),
           ...(policy ? { policy } : {}),
+          ...(input.settings.prompts ? { prompts: input.settings.prompts } : {}),
           modelSelection: input.settings.modelSelection,
         })
-        .pipe(Effect.map((result) => sanitizeCommitMessage(result)));
+        .pipe(
+          Effect.map((result) =>
+            sanitizeCommitMessage(result, input.settings.prompts?.commitMessage !== undefined),
+          ),
+        );
 
       return {
         subject: generated.subject,
@@ -2051,7 +2092,10 @@ export const make = Effect.gen(function* () {
     });
     const baseRangeRef = yield* resolveBaseRangeRef(cwd, baseBranch);
     const rangeContext = yield* gitCore.readRangeContext(cwd, baseRangeRef);
-    const policy = yield* resolveStylePolicy(cwd, settings);
+    const policy =
+      settings.prompts?.changeRequest !== undefined
+        ? undefined
+        : yield* resolveStylePolicy(cwd, settings);
     const changeRequestTemplate =
       settings.style.followChangeRequestTemplates && provider.kind === "github"
         ? Option.getOrUndefined(yield* detectPrTemplate(cwd, baseRangeRef, gitCore.execute))
@@ -2066,6 +2110,7 @@ export const make = Effect.gen(function* () {
       diffPatch: limitContext(rangeContext.diffPatch, 60_000),
       ...(changeRequestTemplate ? { changeRequestTemplate } : {}),
       ...(policy ? { policy } : {}),
+      ...(settings.prompts ? { prompts: settings.prompts } : {}),
       modelSelection: settings.modelSelection,
     });
 
@@ -2624,9 +2669,27 @@ export const make = Effect.gen(function* () {
       });
     }
 
-    const preferredBranch = suggestion.branch ?? sanitizeFeatureBranchName(suggestion.subject);
+    const hasCustomBranchPrompt = settings.prompts?.branchName !== undefined;
     const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd);
-    const resolvedBranch = resolveAutoFeatureBranchName(existingBranchNames, preferredBranch);
+    let resolvedBranch: string;
+    if (hasCustomBranchPrompt) {
+      const validatedBranch = yield* validateGeneratedBranchName(
+        gitCore,
+        cwd,
+        suggestion.branch ?? "",
+      );
+      if (validatedBranch === null) {
+        return yield* new GitManagerError({
+          operation: "runFeatureBranchStep",
+          cwd,
+          detail: "The custom branch-name prompt returned an invalid or reserved Git branch name.",
+        });
+      }
+      resolvedBranch = resolveAvailableGeneratedBranchName(existingBranchNames, validatedBranch);
+    } else {
+      const preferredBranch = suggestion.branch ?? sanitizeFeatureBranchName(suggestion.subject);
+      resolvedBranch = resolveAutoFeatureBranchName(existingBranchNames, preferredBranch);
+    }
 
     yield* gitCore.createRef({ cwd, refName: resolvedBranch });
     yield* Effect.scoped(gitCore.switchRef({ cwd, refName: resolvedBranch }));
@@ -2719,6 +2782,13 @@ export const make = Effect.gen(function* () {
                     style: settings.sourceControlWritingStyle,
                   })),
                 ),
+          ),
+          Effect.zipWith(
+            textGenerationPromptResolver.resolve(input.cwd),
+            (settings, prompts): SourceControlTextGenerationSettings => ({
+              ...settings,
+              ...(prompts ? { prompts } : {}),
+            }),
           ),
           Effect.mapError(
             (cause) =>

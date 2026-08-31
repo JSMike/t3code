@@ -429,6 +429,36 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
     ),
   );
 
+  it.effect("forwards a custom thread title prompt without editorial clipping", () =>
+    withFakeClaudeEnv(
+      {
+        output: JSON.stringify({
+          structured_output: {
+            title:
+              '  "Reconnect failures after restart because the session state does not recover"  ',
+          },
+        }),
+        stdinMustContain: "Keep the returned title exactly as written.",
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const generated = yield* textGeneration.generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Please investigate reconnect failures after restarting the session.",
+            prompts: { threadTitle: "Keep the returned title exactly as written." },
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              model: "claude-sonnet-4-6",
+            },
+          });
+
+          expect(generated.title).toBe(
+            '"Reconnect failures after restart because the session state does not recover"',
+          );
+        }),
+    ),
+  );
+
   it.effect("runs Claude text generation with the configured CLAUDE_CONFIG_DIR", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
