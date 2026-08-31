@@ -17,7 +17,11 @@ import {
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
-import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shared/git";
+import {
+  isTemporaryWorktreeBranch,
+  resolveAvailableGeneratedBranchName,
+  WORKTREE_BRANCH_PREFIX,
+} from "@t3tools/shared/git";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -937,16 +941,23 @@ const make = Effect.gen(function* () {
       });
       if (!generated) return;
 
-      const targetBranch =
+      const validatedBranch =
         input.prompts?.branchName !== undefined
           ? yield* validateGeneratedBranchName(gitCore, cwd, generated.branch)
           : buildGeneratedWorktreeBranchName(generated.branch);
-      if (targetBranch === null) {
+      if (validatedBranch === null) {
         return yield* new TextGenerationError({
           operation: "generateBranchName",
           detail: "The custom branch-name prompt returned an invalid or reserved Git branch name.",
         });
       }
+      const targetBranch =
+        input.prompts?.branchName !== undefined
+          ? resolveAvailableGeneratedBranchName(
+              yield* gitCore.listLocalBranchNames(cwd),
+              validatedBranch,
+            )
+          : validatedBranch;
       if (targetBranch === oldBranch) return;
 
       const renamed = yield* gitWorkflow.renameBranch({ cwd, oldBranch, newBranch: targetBranch });

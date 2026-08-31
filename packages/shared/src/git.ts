@@ -81,21 +81,39 @@ export function resolveAutoFeatureBranchName(
   return `${resolvedBase}-${suffix}`;
 }
 
-/** Resolve an exact generated branch name without changing its spelling. */
+/** Add numeric suffixes to resolve ref namespace conflicts without changing other spelling. */
 export function resolveAvailableGeneratedBranchName(
   existingBranchNames: readonly string[],
   preferredBranch: string,
 ): string {
-  const existingNames = new Set(existingBranchNames);
-  if (!existingNames.has(preferredBranch)) {
-    return preferredBranch;
-  }
+  const preferredParts = preferredBranch.split("/");
+  const candidateParts = [...preferredParts];
+  const suffixes = preferredParts.map(() => 0);
+  const existingBranches = existingBranchNames.map((branchName) => branchName.split("/"));
 
-  let suffix = 1;
-  while (existingNames.has(`${preferredBranch}-${suffix}`)) {
-    suffix += 1;
+  while (true) {
+    const blockingComponentIndex = existingBranches.reduce<number | null>(
+      (nearestBlocker, existingParts) => {
+        const sharedLength = Math.min(candidateParts.length, existingParts.length);
+        for (let index = 0; index < sharedLength; index += 1) {
+          if (candidateParts[index] !== existingParts[index]) {
+            return nearestBlocker;
+          }
+        }
+
+        const blockerIndex = sharedLength - 1;
+        return nearestBlocker === null ? blockerIndex : Math.min(nearestBlocker, blockerIndex);
+      },
+      null,
+    );
+    if (blockingComponentIndex === null) {
+      return candidateParts.join("/");
+    }
+
+    suffixes[blockingComponentIndex] = (suffixes[blockingComponentIndex] ?? 0) + 1;
+    candidateParts[blockingComponentIndex] =
+      `${preferredParts[blockingComponentIndex]}-${suffixes[blockingComponentIndex]}`;
   }
-  return `${preferredBranch}-${suffix}`;
 }
 
 /**

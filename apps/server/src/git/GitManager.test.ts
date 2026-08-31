@@ -3115,11 +3115,11 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("uses an exact custom branch name and preserves custom commit output", () =>
+  it.effect("resolves a custom branch namespace conflict and preserves custom commit output", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
-      yield* runGit(repoDir, ["branch", "Theo/Fix.v2"]);
+      yield* runGit(repoDir, ["branch", "Theo"]);
       NodeFS.writeFileSync(
         NodePath.join(repoDir, "t3.json"),
         // @effect-diagnostics-next-line preferSchemaOverJson:off
@@ -3154,10 +3154,10 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         featureBranch: true,
       });
 
-      expect(result.branch).toEqual({ status: "created", name: "Theo/Fix.v2-1" });
+      expect(result.branch).toEqual({ status: "created", name: "Theo-1/Fix.v2" });
       expect(result.commit.subject).toBe(subject);
       expect((yield* runGit(repoDir, ["branch", "--show-current"])).stdout.trim()).toBe(
-        "Theo/Fix.v2-1",
+        "Theo-1/Fix.v2",
       );
       expect((yield* runGit(repoDir, ["log", "-1", "--pretty=%s"])).stdout.trim()).toBe(subject);
     }),

@@ -192,6 +192,7 @@ describe("ProviderCommandReactor", () => {
     ) => Effect.Effect<ProviderSession, ProviderServiceError>;
     readonly tryHandlePromptCommandEffect?: ProviderAuthService["Service"]["tryHandlePromptCommand"];
     readonly prompts?: T3ProjectFileTextGenerationPrompts;
+    readonly localBranchNames?: readonly string[];
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir =
@@ -522,6 +523,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(
         Layer.mock(GitVcsDriver.GitVcsDriver)({
           execute: validateBranch,
+          listLocalBranchNames: () => Effect.succeed([...(input?.localBranchNames ?? [])]),
         }),
       ),
       Layer.provideMerge(ServerSettingsService.layerTest()),
@@ -2648,6 +2650,7 @@ describe("ProviderCommandReactor", () => {
         branchName: "Return the complete branch name.",
         threadTitle: "Return the exact thread title.",
       },
+      localBranchNames: ["Team"],
     });
     const now = "2026-01-01T00:00:00.000Z";
     const titleInput = await harness.runEffect(
@@ -2712,12 +2715,12 @@ describe("ProviderCommandReactor", () => {
     ]);
     expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
       oldBranch: "t3code/1234abcd",
-      newBranch: "Team/Fix.v2",
+      newBranch: "Team-1/Fix.v2",
     });
     const readModel = await harness.readModel();
     expect(
       readModel.threads.find((thread) => thread.id === ThreadId.make("thread-1"))?.branch,
-    ).toBe("Team/Fix.v2");
+    ).toBe("Team-1/Fix.v2");
   });
 
   it("keeps the temporary branch when a custom branch name is invalid", async () => {
