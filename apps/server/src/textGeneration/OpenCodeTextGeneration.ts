@@ -367,6 +367,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
         stagedPatch: input.stagedPatch,
         includeBranch: input.includeBranch === true,
         policy: input.policy,
+        prompts: input.prompts,
       });
       const generated = yield* runOpenCodeJson({
         operation: "generateCommitMessage",
@@ -377,10 +378,18 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       });
 
       return {
-        subject: sanitizeCommitSubject(generated.subject),
+        subject: sanitizeCommitSubject(
+          generated.subject,
+          input.prompts?.commitMessage !== undefined,
+        ),
         body: generated.body.trim(),
         ...("branch" in generated && typeof generated.branch === "string"
-          ? { branch: sanitizeFeatureBranchName(generated.branch) }
+          ? {
+              branch:
+                input.prompts?.branchName === undefined
+                  ? sanitizeFeatureBranchName(generated.branch)
+                  : generated.branch.trim(),
+            }
           : {}),
       };
     });
@@ -395,6 +404,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
         diffPatch: input.diffPatch,
         policy: input.policy,
         changeRequestTemplate: input.changeRequestTemplate,
+        prompts: input.prompts,
       });
       const generated = yield* runOpenCodeJson({
         operation: "generatePrContent",
@@ -415,6 +425,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       const { prompt, outputSchema } = buildBranchNamePrompt({
         message: input.message,
         attachments: input.attachments,
+        prompts: input.prompts,
       });
       const generated = yield* runOpenCodeJson({
         operation: "generateBranchName",
@@ -426,7 +437,10 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       });
 
       return {
-        branch: sanitizeBranchFragment(generated.branch),
+        branch:
+          input.prompts?.branchName === undefined
+            ? sanitizeBranchFragment(generated.branch)
+            : generated.branch.trim(),
       };
     });
 
@@ -437,6 +451,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
         previousTitle: input.previousTitle,
         linkedContext: input.linkedContext,
         attachments: input.attachments,
+        prompts: input.prompts,
       });
       const generated = yield* runOpenCodeJson({
         operation: "generateThreadTitle",
@@ -448,7 +463,12 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       });
 
       return {
-        title: sanitizeThreadTitle(generated.title),
+        title: sanitizeThreadTitle(
+          generated.title,
+          (input.previousTitle === undefined
+            ? input.prompts?.threadTitle
+            : (input.prompts?.threadTitleRegeneration ?? input.prompts?.threadTitle)) !== undefined,
+        ),
         ...(generated.needsRefinement ? { needsRefinement: true } : {}),
       };
     });

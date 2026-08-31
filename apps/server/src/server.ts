@@ -68,6 +68,7 @@ import * as GitHubCli from "./sourceControl/GitHubCli.ts";
 import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as ForgejoCli from "./sourceControl/ForgejoCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
+import * as TextGenerationPromptResolver from "./textGeneration/TextGenerationPromptResolver.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
@@ -305,6 +306,10 @@ const SourceControlProviderRegistryLayerLive = SourceControlProviderRegistry.lay
   Layer.provideMerge(VcsDriverRegistryLayerLive),
 );
 
+const TextGenerationPromptResolverLayerLive = TextGenerationPromptResolver.layer.pipe(
+  Layer.provide(T3ProjectFileLoader.layer),
+);
+
 const RepositoryIdentityResolverLayerLive = Layer.effect(
   RepositoryIdentityResolver.RepositoryIdentityResolver,
   Effect.gen(function* () {
@@ -358,6 +363,7 @@ const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(
     TextGeneration.layer.pipe(Layer.provide(SourceControlProviderRegistryLayerLive)),
   ),
+  Layer.provideMerge(TextGenerationPromptResolverLayerLive),
 );
 
 const GitLayerLive = Layer.empty.pipe(
@@ -548,6 +554,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(Layer.mergeAll(NativeAppIconResolver.layer, ProjectFaviconResolverLayerLive)),
   Layer.provideMerge(RepositoryIdentityResolverLayerLive),
   Layer.provideMerge(ServerEnvironmentLayerLive),
+  Layer.provideMerge(TextGenerationPromptResolverLayerLive),
   Layer.provideMerge(AuthLayerLive),
   Layer.provideMerge(ServerSecretStore.layer),
   Layer.provideMerge(

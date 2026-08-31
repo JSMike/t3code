@@ -29,9 +29,12 @@ export function limitSection(value: string, maxChars: number): string {
   return `${truncated}\n\n[truncated]`;
 }
 
-/** Normalise a raw commit subject to imperative-mood, ≤72 chars, no trailing period. */
-export function sanitizeCommitSubject(raw: string): string {
+/** Apply legacy commit editorial rules, or only single-line safety for a custom prompt. */
+export function sanitizeCommitSubject(raw: string, custom = false): string {
   const singleLine = raw.trim().split(/\r?\n/g)[0]?.trim() ?? "";
+  if (custom) {
+    return singleLine || "Update project files";
+  }
   const withoutTrailingPeriod = singleLine.replace(/[.]+$/g, "").trim();
   if (withoutTrailingPeriod.length === 0) {
     return "Update project files";
@@ -52,15 +55,23 @@ export function sanitizePrTitle(raw: string): string {
   return "Update project changes";
 }
 
+/** Keep a custom single-line result intact and substitute a fallback for blank output. */
+function sanitizeCustomLine(raw: string, fallback: string): string {
+  return raw.trim().split(/\r?\n/g)[0]?.trim() || fallback;
+}
+
 // Prompts ask for under 40 characters. This cap only stops a runaway model
 // from pushing a paragraph into the sidebar, header, and window title.
 const MAX_THREAD_TITLE_CHARS = 120;
 
 /** Normalise a raw thread title to a single line. Clients truncate for display. */
-export function sanitizeThreadTitle(raw: string): string {
+export function sanitizeThreadTitle(raw: string, custom = false): string {
   // Unwrap a JSON-formatted title before truncation can cut off the closing brace.
   const decoded = decodeJsonThreadTitle(raw);
   const title = Option.isSome(decoded) ? decoded.value.title : raw;
+  if (custom) {
+    return sanitizeCustomLine(title, "New thread");
+  }
   const normalized = title
     .trim()
     .split(/\r?\n/g)[0]

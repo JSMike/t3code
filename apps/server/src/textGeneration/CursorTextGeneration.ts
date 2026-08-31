@@ -173,6 +173,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         stagedPatch: input.stagedPatch,
         includeBranch: input.includeBranch === true,
         policy: input.policy,
+        prompts: input.prompts,
       });
 
       const generated = yield* runCursorJson({
@@ -184,10 +185,18 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       });
 
       return {
-        subject: sanitizeCommitSubject(generated.subject),
+        subject: sanitizeCommitSubject(
+          generated.subject,
+          input.prompts?.commitMessage !== undefined,
+        ),
         body: generated.body.trim(),
         ...("branch" in generated && typeof generated.branch === "string"
-          ? { branch: sanitizeFeatureBranchName(generated.branch) }
+          ? {
+              branch:
+                input.prompts?.branchName === undefined
+                  ? sanitizeFeatureBranchName(generated.branch)
+                  : generated.branch.trim(),
+            }
           : {}),
       };
     });
@@ -202,6 +211,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         diffPatch: input.diffPatch,
         policy: input.policy,
         changeRequestTemplate: input.changeRequestTemplate,
+        prompts: input.prompts,
       });
 
       const generated = yield* runCursorJson({
@@ -223,6 +233,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       const { prompt, outputSchema } = buildBranchNamePrompt({
         message: input.message,
         attachments: input.attachments,
+        prompts: input.prompts,
       });
 
       const generated = yield* runCursorJson({
@@ -234,7 +245,10 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       });
 
       return {
-        branch: sanitizeBranchFragment(generated.branch),
+        branch:
+          input.prompts?.branchName === undefined
+            ? sanitizeBranchFragment(generated.branch)
+            : generated.branch.trim(),
       };
     });
 
@@ -245,6 +259,7 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
         previousTitle: input.previousTitle,
         linkedContext: input.linkedContext,
         attachments: input.attachments,
+        prompts: input.prompts,
       });
 
       const generated = yield* runCursorJson({
@@ -256,7 +271,12 @@ export const makeCursorTextGeneration = Effect.fn("makeCursorTextGeneration")(fu
       });
 
       return {
-        title: sanitizeThreadTitle(generated.title),
+        title: sanitizeThreadTitle(
+          generated.title,
+          (input.previousTitle === undefined
+            ? input.prompts?.threadTitle
+            : (input.prompts?.threadTitleRegeneration ?? input.prompts?.threadTitle)) !== undefined,
+        ),
         ...(generated.needsRefinement ? { needsRefinement: true } : {}),
       } satisfies TextGeneration.ThreadTitleGenerationResult;
     });
