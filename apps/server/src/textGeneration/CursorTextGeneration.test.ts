@@ -9,6 +9,7 @@ import { it } from "@effect/vitest";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -223,35 +224,39 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGeneration", (it) => {
     ),
   );
 
-  it.effect("forwards custom title behavior through Cursor ACP text generation", () => {
-    const requestLogDir = NodeFS.mkdtempSync(
-      NodePath.join(NodeOS.tmpdir(), "t3code-cursor-custom-title-log-"),
-    );
-    const requestLogPath = NodePath.join(requestLogDir, "requests.ndjson");
-    return withFakeAcpAgent(
-      {
-        T3_ACP_REQUEST_LOG_PATH: requestLogPath,
-        T3_ACP_PROMPT_RESPONSE_TEXT: JSON.stringify({
-          title: '"Trim reconnect spinner status after resume."',
-        }),
-      },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const generated = yield* textGeneration.generateThreadTitle({
-            cwd: process.cwd(),
-            message: "Fix the reconnect spinner after a resumed session.",
-            prompts: { threadTitle: "Keep title punctuation." },
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("cursor"),
-              model: "composer-2",
-            },
-          });
+  it.effect("forwards custom title behavior through Cursor ACP text generation", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const requestLogDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3code-cursor-custom-title-log-",
+      });
+      const requestLogPath = NodePath.join(requestLogDir, "requests.ndjson");
+      return yield* withFakeAcpAgent(
+        {
+          T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+          T3_ACP_PROMPT_RESPONSE_TEXT:
+            '{"title":"\\"Trim reconnect spinner status after resume.\\""}',
+        },
+        (textGeneration) =>
+          Effect.gen(function* () {
+            const generated = yield* textGeneration.generateThreadTitle({
+              cwd: process.cwd(),
+              message: "Fix the reconnect spinner after a resumed session.",
+              prompts: { threadTitle: "Keep title punctuation." },
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("cursor"),
+                model: "composer-2",
+              },
+            });
 
-          expect(generated.title).toBe('"Trim reconnect spinner status after resume."');
-          expect(NodeFS.readFileSync(requestLogPath, "utf8")).toContain("Keep title punctuation.");
-        }),
-    );
-  });
+            expect(generated.title).toBe('"Trim reconnect spinner status after resume."');
+            expect(NodeFS.readFileSync(requestLogPath, "utf8")).toContain(
+              "Keep title punctuation.",
+            );
+          }),
+      );
+    }),
+  );
 
   // Closing the runtime on Windows is taskkill /F, which never lets the mock
   // agent reach its exit handler, so there is no exit log to assert on.
