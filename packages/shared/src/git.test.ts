@@ -22,6 +22,24 @@ describe("resolveAvailableGeneratedBranchName", () => {
     ).toBe("Theo/Fix.v2-2");
     expect(resolveAvailableGeneratedBranchName(["theo/fix.v2"], "Theo/Fix.v2")).toBe("Theo/Fix.v2");
   });
+
+  it("suffixes the blocked component when an existing ref is an ancestor", () => {
+    expect(resolveAvailableGeneratedBranchName(["team"], "team/feature")).toBe("team-1/feature");
+  });
+
+  it("suffixes the leaf when the generated ref is an ancestor", () => {
+    expect(resolveAvailableGeneratedBranchName(["team/feature"], "team")).toBe("team-1");
+  });
+
+  it("resolves nested and secondary namespace collisions", () => {
+    expect(
+      resolveAvailableGeneratedBranchName(
+        ["org/team", "org/team-1", "org/team-2/feature"],
+        "org/team/feature",
+      ),
+    ).toBe("org/team-2/feature-1");
+    expect(resolveAvailableGeneratedBranchName(["a", "a-1/b/c"], "a/b")).toBe("a-1/b-1");
+  });
 });
 
 describe("normalizeGitRemoteUrl", () => {

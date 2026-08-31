@@ -124,8 +124,9 @@ regeneration uses `threadTitle`. Omit or delete the other prompts to restore the
 
 The branch prompt returns a full branch name, such as `fix/login`, not a fully qualified ref such as
 `refs/heads/fix/login`. T3 Code does not force its standard prefix when this prompt is set. It keeps
-valid names as written, adds a suffix when the name already exists, and rejects invalid or reserved
-branch names without renaming or creating a branch.
+valid names as written and rejects invalid or reserved branch names without renaming or creating a
+branch. If the name conflicts with an existing ref namespace, T3 Code adds a numeric suffix to the
+blocked path component.
 
 T3 Code can still provide a detected pull request template as reference context when
 `changeRequest` is set. The template does not force the generated format.
