@@ -2646,6 +2646,7 @@ describe("ProviderCommandReactor", () => {
 
   it("uses custom prompts for the first title and exact worktree branch name", async () => {
     const harness = await createHarness({
+      initialTitle: "New thread",
       prompts: {
         branchName: "Return the complete branch name.",
         threadTitle: "Return the exact thread title.",
@@ -2677,7 +2678,6 @@ describe("ProviderCommandReactor", () => {
         type: "thread.meta.update",
         commandId: CommandId.make("cmd-thread-custom-branch"),
         threadId: ThreadId.make("thread-1"),
-        title: "New thread",
         branch: "t3code/1234abcd",
         worktreePath: "/tmp/provider-project-worktree",
       }),

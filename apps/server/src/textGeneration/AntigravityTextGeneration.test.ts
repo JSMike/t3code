@@ -278,6 +278,57 @@ const makeFixture = Effect.fn("makeAntigravityTextGenerationFixture")(function* 
 });
 
 it.layer(NodeServices.layer)("AntigravityTextGeneration", (it) => {
+  it.effect("preserves custom prompts and generated names across helper types", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture({
+        outputs: [
+          '{"subject":"Keep punctuation.","body":"","branch":"Team/Fix.v2"}',
+          '{"title":"Release checklist","body":"Deploy carefully."}',
+          '{"branch":"Team/Fix.v2"}',
+          '{"title":"Keep punctuation."}',
+        ],
+      });
+      const prompts = {
+        commitMessage: "Keep commit punctuation.",
+        changeRequest: "Write a release checklist.",
+        branchName: "Keep the full branch name.",
+        threadTitle: "Keep title punctuation.",
+      };
+      const common = { cwd: fixture.projectDirectory, modelSelection, prompts };
+      expect(
+        yield* fixture.textGeneration.generateCommitMessage({
+          ...common,
+          branch: "main",
+          stagedSummary: "M login.ts",
+          stagedPatch: "+handleRemoteCallback()",
+          includeBranch: true,
+        }),
+      ).toEqual({ subject: "Keep punctuation.", body: "", branch: "Team/Fix.v2" });
+      expect(
+        yield* fixture.textGeneration.generatePrContent({
+          ...common,
+          baseBranch: "main",
+          headBranch: "Team/Fix.v2",
+          commitSummary: "Repair login",
+          diffSummary: "M login.ts",
+          diffPatch: "+handleRemoteCallback()",
+        }),
+      ).toEqual({ title: "Release checklist", body: "Deploy carefully." });
+      expect(
+        yield* fixture.textGeneration.generateBranchName({ ...common, message: "Repair login" }),
+      ).toEqual({ branch: "Team/Fix.v2" });
+      expect(
+        yield* fixture.textGeneration.generateThreadTitle({ ...fixture.titleInput, prompts }),
+      ).toEqual({ title: "Keep punctuation." });
+      for (const [index, instruction] of Object.values(prompts).entries()) {
+        expect(fixture.state.prompts[index]?.prompt).toEqual([
+          { type: "text", text: expect.stringContaining(instruction) },
+        ]);
+      }
+      yield* fixture.assertCleaned;
+    }).pipe(Effect.scoped),
+  );
+
   it.effect(
     "generates all helper types in empty workspaces and removes only owned session files",
     () =>
