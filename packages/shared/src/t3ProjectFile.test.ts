@@ -34,7 +34,8 @@ describe("buildT3ProjectFileJsonSchema", () => {
                 string,
                 {
                   description?: string;
-                  allOf?: ReadonlyArray<{ minLength?: number; maxLength?: number }>;
+                  minLength?: number;
+                  maxLength?: number;
                 }
               >;
             }
@@ -49,8 +50,8 @@ describe("buildT3ProjectFileJsonSchema", () => {
       "defaultThreadEnvMode",
       "iconPath",
       "scripts",
-      "worktreeSubmodules",
       "textGeneration",
+      "worktreeSubmodules",
     ]);
     expect(schema.required).toBeUndefined();
     expect(schema.properties.iconPath?.description).toContain("Workspace-relative path");
@@ -64,7 +65,7 @@ describe("buildT3ProjectFileJsonSchema", () => {
       "threadTitle",
       "threadTitleRegeneration",
     ]);
-    expect(prompts?.commitMessage?.allOf).toContainEqual({ maxLength: 20_000 });
+    expect(prompts?.commitMessage?.maxLength).toBe(20_000);
     expect(prompts?.threadTitleRegeneration?.description).toContain("Defaults to threadTitle");
 
     const script = schema.properties.scripts?.items;
