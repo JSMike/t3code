@@ -29,6 +29,47 @@ function environment(environmentId: EnvironmentId, settings: ServerSettings): Se
 }
 
 describe("mobile project settings scope", () => {
+  it("sets and clears an empty project prefix across connected environments", () => {
+    const firstSettings = { ...DEFAULT_SERVER_SETTINGS, worktreeBranchPrefix: "first" };
+    const secondSettings = { ...DEFAULT_SERVER_SETTINGS, worktreeBranchPrefix: "second" };
+    const projects = [
+      { environmentId: firstId, id: firstProject },
+      { environmentId: secondId, id: secondProject },
+    ];
+    const targets = resolveMobileSettingsTargets(
+      [environment(firstId, firstSettings), environment(secondId, secondSettings)],
+      projects,
+    );
+    expect(planMobileScopedSettingsPatch(targets, true, { worktreeBranchPrefix: "" })).toEqual([
+      {
+        environmentId: firstId,
+        patch: { projectSettingsOverrides: { [firstProject]: { worktreeBranchPrefix: "" } } },
+      },
+      {
+        environmentId: secondId,
+        patch: { projectSettingsOverrides: { [secondProject]: { worktreeBranchPrefix: "" } } },
+      },
+    ]);
+    const overridden = resolveMobileSettingsTargets(
+      [
+        environment(firstId, {
+          ...firstSettings,
+          projectSettingsOverrides: {
+            [firstProject]: { worktreeBranchPrefix: "", defaultAutoPull: true },
+          },
+        }),
+      ],
+      projects,
+    );
+    expect(overridden[0]?.settings.worktreeBranchPrefix).toBe("");
+    expect(planMobileScopedSettingsClear(overridden, ["worktreeBranchPrefix"])).toEqual([
+      {
+        environmentId: firstId,
+        patch: { projectSettingsOverrides: { [firstProject]: { defaultAutoPull: true } } },
+      },
+    ]);
+  });
+
   it("edits each checkout's own override without changing either environment default", () => {
     const firstSettings: ServerSettings = {
       ...DEFAULT_SERVER_SETTINGS,

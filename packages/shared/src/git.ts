@@ -41,6 +41,11 @@ export function sanitizeBranchFragment(raw: string): string {
   return branchFragment.length > 0 ? branchFragment : "update";
 }
 
+/** Normalize an editable prefix; an empty value disables the worktree namespace. */
+export function normalizeWorktreeBranchPrefix(raw: string): string {
+  return /[a-z0-9]/i.test(raw) ? sanitizeBranchFragment(raw) : "";
+}
+
 /**
  * Sanitize a string into a `feature/…` refName name.
  * Preserves an existing `feature/` prefix or slash-separated namespace.

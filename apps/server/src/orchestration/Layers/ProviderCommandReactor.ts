@@ -20,7 +20,6 @@ import { projectComposerContextForProvider } from "@t3tools/shared/composerConte
 import {
   isTemporaryWorktreeBranch,
   sanitizeBranchFragment,
-  resolveAvailableGeneratedBranchName,
   WORKTREE_BRANCH_PREFIX,
 } from "@t3tools/shared/git";
 import * as Cache from "effect/Cache";
@@ -74,7 +73,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
-import { validateGeneratedBranchName } from "../../git/GeneratedBranchName.ts";
+import { resolveGeneratedBranchName } from "../../git/GeneratedBranchName.ts";
 
 const isProviderAdapterProcessError = Schema.is(ProviderAdapterProcessError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
@@ -940,23 +939,19 @@ const make = Effect.gen(function* () {
       });
       if (!generated) return;
 
-      const validatedBranch =
+      const targetBranch = yield* resolveGeneratedBranchName(
+        gitCore,
+        cwd,
         input.prompts?.branchName !== undefined
-          ? yield* validateGeneratedBranchName(gitCore, cwd, generated.branch)
-          : buildGeneratedWorktreeBranchName(generated.branch, settings.worktreeBranchPrefix);
-      if (validatedBranch === null) {
+          ? generated.branch
+          : buildGeneratedWorktreeBranchName(generated.branch, settings.worktreeBranchPrefix),
+      );
+      if (targetBranch === null) {
         return yield* new TextGenerationError({
           operation: "generateBranchName",
-          detail: "The custom branch-name prompt returned an invalid or reserved Git branch name.",
+          detail: "The generated branch name is invalid or reserved by T3 Code.",
         });
       }
-      const targetBranch =
-        input.prompts?.branchName !== undefined
-          ? resolveAvailableGeneratedBranchName(
-              yield* gitCore.listLocalBranchNames(cwd),
-              validatedBranch,
-            )
-          : validatedBranch;
       if (targetBranch === oldBranch) return;
 
       const renamed = yield* gitWorkflow.renameBranch({ cwd, oldBranch, newBranch: targetBranch });

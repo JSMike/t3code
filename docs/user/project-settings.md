@@ -121,9 +121,11 @@ commits, or thread messages. The selected text generation model does not change.
 `threadTitle` applies to new and regenerated titles. Add `threadTitleRegeneration` to use different
 instructions when T3 Code regenerates an existing title. If you delete `threadTitleRegeneration`,
 regeneration uses `threadTitle`. Omit or delete the other prompts to restore their default behavior.
+Removing `branchName` restores the configured worktree prefix for subsequent generated names.
 
 The branch prompt returns a full branch name, such as `fix/login`, not a fully qualified ref such as
-`refs/heads/fix/login`. T3 Code does not force its standard prefix when this prompt is set. It keeps
+`refs/heads/fix/login`. This prompt takes precedence over the worktree branch prefix in Settings,
+including a project-specific prefix. T3 Code does not add a prefix when this prompt is set. It keeps
 valid names as written and rejects invalid or reserved branch names without renaming or creating a
 branch. If the name conflicts with an existing ref namespace, T3 Code adds a numeric suffix to the
 blocked path component.

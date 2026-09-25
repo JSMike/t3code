@@ -1,4 +1,7 @@
-import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
+import {
+  isTemporaryWorktreeBranch,
+  resolveAvailableGeneratedBranchName,
+} from "@t3tools/shared/git";
 import * as Effect from "effect/Effect";
 
 import type * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -29,4 +32,15 @@ export const validateGeneratedBranchName = Effect.fn("validateGeneratedBranchNam
     allowNonZeroExit: true,
   });
   return result.exitCode === 0 && result.stdout.trim() === branch ? branch : null;
+});
+
+/** Resolve a full generated name consistently for worktree renames and commit-created branches. */
+export const resolveGeneratedBranchName = Effect.fn("resolveGeneratedBranchName")(function* (
+  git: GitVcsDriver.GitVcsDriver["Service"],
+  cwd: string,
+  rawBranch: string,
+) {
+  const validated = yield* validateGeneratedBranchName(git, cwd, rawBranch);
+  if (validated === null) return null;
+  return resolveAvailableGeneratedBranchName(yield* git.listLocalBranchNames(cwd), validated);
 });

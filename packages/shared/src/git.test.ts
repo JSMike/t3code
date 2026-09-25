@@ -6,11 +6,25 @@ import {
   buildTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
+  normalizeWorktreeBranchPrefix,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   parseOriginUrlFromGitConfig,
   resolveAvailableGeneratedBranchName,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
+
+describe("normalizeWorktreeBranchPrefix", () => {
+  it.each([
+    ["", ""],
+    [" /_- ", ""],
+    ["My Team/Backend/", "my-team/backend"],
+    ["team//backend", "team/backend"],
+    ["../Team", "team"],
+    ["a".repeat(65), "a".repeat(64)],
+  ])("normalizes an editable prefix %j to %j", (input, expected) => {
+    expect(normalizeWorktreeBranchPrefix(input)).toBe(expected);
+  });
+});
 
 describe("resolveAvailableGeneratedBranchName", () => {
   it("preserves spelling and appends a suffix only for an exact collision", () => {

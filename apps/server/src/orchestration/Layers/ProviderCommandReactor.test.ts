@@ -186,6 +186,7 @@ describe("ProviderCommandReactor", () => {
     readonly afterTurnStartDispatch?: () => Effect.Effect<void>;
     readonly compactThreadEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly worktreeBranchPrefix?: string;
+    readonly projectWorktreeBranchPrefix?: string;
     readonly interruptTurnEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly stopSessionEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly startSessionEffect?: (
@@ -528,11 +529,20 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
       Layer.provideMerge(
-        ServerSettingsService.layerTest(
-          input?.worktreeBranchPrefix === undefined
-            ? {}
-            : { worktreeBranchPrefix: input.worktreeBranchPrefix },
-        ),
+        ServerSettingsService.layerTest({
+          ...(input?.worktreeBranchPrefix !== undefined
+            ? { worktreeBranchPrefix: input.worktreeBranchPrefix }
+            : {}),
+          ...(input?.projectWorktreeBranchPrefix !== undefined
+            ? {
+                projectSettingsOverrides: {
+                  [asProjectId("project-1")]: {
+                    worktreeBranchPrefix: input.projectWorktreeBranchPrefix,
+                  },
+                },
+              }
+            : {}),
+        }),
       ),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
@@ -2586,46 +2596,91 @@ describe("ProviderCommandReactor", () => {
 
   it.each([
     {
+      localBranches: [],
+      projectPrefix: undefined,
       prefix: undefined,
       generated: "feature/reconnect-backoff",
       expected: "t3code/feature/reconnect-backoff",
     },
     {
+      localBranches: [],
+      projectPrefix: undefined,
       prefix: "my-team",
       generated: "My-Team/Feature/Reconnect Backoff",
       expected: "my-team/feature/reconnect-backoff",
     },
     {
+      localBranches: [],
+      projectPrefix: undefined,
       prefix: "my-team",
       generated: "t3code/feature/reconnect-backoff",
       expected: "my-team/feature/reconnect-backoff",
     },
     {
+      localBranches: [],
+      projectPrefix: undefined,
       prefix: "feature",
       generated: "t3code/feature/reconnect-backoff",
       expected: "feature/reconnect-backoff",
     },
     {
+      localBranches: [],
+      projectPrefix: undefined,
       prefix: "teams/platform",
       generated: "t3code/teams/platform/reconnect-backoff",
       expected: "teams/platform/reconnect-backoff",
     },
     {
+      localBranches: [],
+      projectPrefix: undefined,
       prefix: "t3code/my-team",
       generated: "t3code/my-team/feature/reconnect-backoff",
       expected: "t3code/my-team/feature/reconnect-backoff",
     },
     {
+      localBranches: [],
+      projectPrefix: undefined,
       prefix: "",
       generated: "t3code/feature/reconnect-backoff",
       expected: "feature/reconnect-backoff",
     },
+    {
+      prefix: "environment",
+      localBranches: [],
+      projectPrefix: "project",
+      generated: "t3code/feature/reconnect-backoff",
+      expected: "project/feature/reconnect-backoff",
+    },
+    {
+      prefix: "environment",
+      localBranches: [],
+      projectPrefix: "",
+      generated: "t3code/feature/reconnect-backoff",
+      expected: "feature/reconnect-backoff",
+    },
+    {
+      prefix: "team",
+      projectPrefix: undefined,
+      localBranches: ["team"],
+      generated: "reconnect-backoff",
+      expected: "team-1/reconnect-backoff",
+    },
+    {
+      prefix: "",
+      projectPrefix: undefined,
+      localBranches: ["reconnect-backoff/other"],
+      generated: "reconnect-backoff",
+      expected: "reconnect-backoff-1",
+    },
   ])(
-    "generates a worktree branch with prefix $prefix for the first turn",
-    async ({ prefix, generated, expected }) => {
-      const harness = await createHarness(
-        prefix === undefined ? undefined : { worktreeBranchPrefix: prefix },
-      );
+    "generates a worktree branch with prefix $prefix and project override $projectPrefix for the first turn",
+    async ({ prefix, projectPrefix, localBranches, generated, expected }) => {
+      const harness = await createHarness({
+        ...(prefix !== undefined ? { worktreeBranchPrefix: prefix } : {}),
+        ...(projectPrefix !== undefined ? { projectWorktreeBranchPrefix: projectPrefix } : {}),
+        localBranchNames: localBranches,
+        prompts: { threadTitle: "Use an exact title." },
+      });
       const now = "2026-01-01T00:00:00.000Z";
       const prompt = `Add a safer reconnect backoff. ${serializeAssistantCitation(assistantCitation)}`;
       const statusRefreshed = await harness.runEffect(Deferred.make<void>());
@@ -2683,87 +2738,93 @@ describe("ProviderCommandReactor", () => {
     },
   );
 
-  it("uses custom prompts for the first title and exact worktree branch name", async () => {
-    const harness = await createHarness({
-      initialTitle: "New thread",
-      prompts: {
-        branchName: "Return the complete branch name.",
-        threadTitle: "Return the exact thread title.",
-      },
-      localBranchNames: ["Team"],
-    });
-    const now = "2026-01-01T00:00:00.000Z";
-    const titleInput = await harness.runEffect(
-      Deferred.make<Parameters<TextGeneration["Service"]["generateThreadTitle"]>[0]>(),
-    );
-    const branchRefresh = await harness.runEffect(Deferred.make<void>());
-
-    harness.generateBranchName.mockReturnValue(Effect.succeed({ branch: "Team/Fix.v2" }));
-    harness.generateThreadTitle.mockImplementation((input) =>
-      Deferred.succeed(titleInput, input).pipe(Effect.as({ title: "Exact Mixed-Case Title" })),
-    );
-    const refreshStatusImplementation = harness.refreshStatus.getMockImplementation();
-    if (!refreshStatusImplementation) {
-      throw new Error("Expected a refresh-status implementation");
-    }
-    harness.refreshStatus.mockImplementation((cwd) =>
-      refreshStatusImplementation(cwd).pipe(
-        Effect.tap(() => Deferred.succeed(branchRefresh, undefined)),
-      ),
-    );
-
-    await harness.runEffect(
-      harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.make("cmd-thread-custom-branch"),
-        threadId: ThreadId.make("thread-1"),
-        branch: "t3code/1234abcd",
-        worktreePath: "/tmp/provider-project-worktree",
-      }),
-    );
-    await harness.runEffect(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make("cmd-turn-start-custom-prompts"),
-        threadId: ThreadId.make("thread-1"),
-        message: {
-          messageId: asMessageId("user-message-custom-prompts"),
-          role: "user",
-          text: "Keep the generated names exact.",
-          attachments: [],
+  it.each([undefined, "team", ""])(
+    "uses a full branch prompt ahead of prefix %j",
+    async (prefix) => {
+      const harness = await createHarness({
+        initialTitle: "New thread",
+        worktreeBranchPrefix: "environment",
+        ...(prefix !== undefined ? { projectWorktreeBranchPrefix: prefix } : {}),
+        prompts: {
+          branchName: "Return the complete branch name.",
+          threadTitle: "Return the exact thread title.",
         },
-        titleSeed: "Keep the generated names exact.",
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
+        localBranchNames: ["Team"],
+      });
+      const now = "2026-01-01T00:00:00.000Z";
+      const titleInput = await harness.runEffect(
+        Deferred.make<Parameters<TextGeneration["Service"]["generateThreadTitle"]>[0]>(),
+      );
+      const branchRefresh = await harness.runEffect(Deferred.make<void>());
 
-    const generatedTitleInput = await harness.runEffect(Deferred.await(titleInput));
-    await harness.runEffect(Deferred.await(branchRefresh));
+      harness.generateBranchName.mockReturnValue(Effect.succeed({ branch: "Team/Fix.v2" }));
+      harness.generateThreadTitle.mockImplementation((input) =>
+        Deferred.succeed(titleInput, input).pipe(Effect.as({ title: "Exact Mixed-Case Title" })),
+      );
+      const refreshStatusImplementation = harness.refreshStatus.getMockImplementation();
+      if (!refreshStatusImplementation) {
+        throw new Error("Expected a refresh-status implementation");
+      }
+      harness.refreshStatus.mockImplementation((cwd) =>
+        refreshStatusImplementation(cwd).pipe(
+          Effect.tap(() => Deferred.succeed(branchRefresh, undefined)),
+        ),
+      );
 
-    expect(generatedTitleInput.prompts?.threadTitle).toBe("Return the exact thread title.");
-    expect(harness.generateBranchName.mock.calls[0]?.[0].prompts?.branchName).toBe(
-      "Return the complete branch name.",
-    );
-    expect(harness.promptResolverCwds).toEqual(["/tmp/provider-project-worktree"]);
-    expect(harness.validateBranch.mock.calls[0]?.[0].args).toEqual([
-      "check-ref-format",
-      "--branch",
-      "Team/Fix.v2",
-    ]);
-    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
-      oldBranch: "t3code/1234abcd",
-      newBranch: "Team-1/Fix.v2",
-    });
-    const readModel = await harness.readModel();
-    expect(
-      readModel.threads.find((thread) => thread.id === ThreadId.make("thread-1"))?.branch,
-    ).toBe("Team-1/Fix.v2");
-  });
+      await harness.runEffect(
+        harness.engine.dispatch({
+          type: "thread.meta.update",
+          commandId: CommandId.make("cmd-thread-custom-branch"),
+          threadId: ThreadId.make("thread-1"),
+          branch: "t3code/1234abcd",
+          worktreePath: "/tmp/provider-project-worktree",
+        }),
+      );
+      await harness.runEffect(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-custom-prompts"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("user-message-custom-prompts"),
+            role: "user",
+            text: "Keep the generated names exact.",
+            attachments: [],
+          },
+          titleSeed: "Keep the generated names exact.",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        }),
+      );
+
+      const generatedTitleInput = await harness.runEffect(Deferred.await(titleInput));
+      await harness.runEffect(Deferred.await(branchRefresh));
+
+      expect(generatedTitleInput.prompts?.threadTitle).toBe("Return the exact thread title.");
+      expect(harness.generateBranchName.mock.calls[0]?.[0].prompts?.branchName).toBe(
+        "Return the complete branch name.",
+      );
+      expect(harness.promptResolverCwds).toEqual(["/tmp/provider-project-worktree"]);
+      expect(harness.validateBranch.mock.calls[0]?.[0].args).toEqual([
+        "check-ref-format",
+        "--branch",
+        "Team/Fix.v2",
+      ]);
+      expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+        oldBranch: "t3code/1234abcd",
+        newBranch: "Team-1/Fix.v2",
+      });
+      const readModel = await harness.readModel();
+      expect(
+        readModel.threads.find((thread) => thread.id === ThreadId.make("thread-1"))?.branch,
+      ).toBe("Team-1/Fix.v2");
+    },
+  );
 
   it("keeps the temporary branch when a custom branch name is invalid", async () => {
     const harness = await createHarness({
+      worktreeBranchPrefix: "team",
       prompts: { branchName: "Return the complete branch name." },
     });
     const now = "2026-01-01T00:00:00.000Z";

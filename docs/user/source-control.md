@@ -88,7 +88,17 @@ make your first commit before pushing.
 ## Choose a worktree branch prefix
 
 Generated worktree branch names start with `t3code/` by default. In **Settings → General → Worktree branch
-prefix**, enter a custom prefix or clear the field to use no prefix.
+prefix**, enter a custom prefix or clear the field to use no prefix. On mobile, use **Settings →
+Source control → Branch prefix**. Choose a project in the settings filter to override its environment's
+prefix, or reset the project override to inherit it again.
+
+A [branch-name prompt in `t3.json`](project-settings.md#customize-generated-text) takes precedence:
+it returns the full name, without adding this prefix. Other custom prompts do not change branch naming.
+Git name collisions receive numeric suffixes. The prefix setting applies to generated worktree branches; commit-created feature branches keep their
+existing convention unless a branch-name prompt overrides it.
+
+These settings apply when T3 Code generates the descriptive branch name after the first message.
+They do not change existing branches, initial temporary branch names, or worktree directory paths.
 
 ## Create a pull request
 

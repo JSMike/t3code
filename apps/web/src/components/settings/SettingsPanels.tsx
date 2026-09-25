@@ -44,7 +44,7 @@ import {
   type QuitConfirmationMode,
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
-import { sanitizeBranchFragment } from "@t3tools/shared/git";
+import { normalizeWorktreeBranchPrefix } from "@t3tools/shared/git";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
@@ -2934,7 +2934,7 @@ export function GeneralSettingsPanel() {
           serverScoped
           settingKeys={["worktreeBranchPrefix"]}
           {...searchableSetting("worktree-branch-prefix")}
-          description="Prefix for generated worktree branch names. Leave blank for no prefix."
+          description="Prefix for generated worktree branch names. Leave blank for no prefix. A branch-name prompt in t3.json takes precedence."
           resetAction={
             settings.worktreeBranchPrefix !== DEFAULT_UNIFIED_SETTINGS.worktreeBranchPrefix ? (
               <SettingResetButton
@@ -2956,9 +2956,7 @@ export function GeneralSettingsPanel() {
               spellCheck={false}
               aria-label="Worktree branch prefix"
               onCommit={(value) => {
-                const worktreeBranchPrefix = /[a-z0-9]/i.test(value)
-                  ? sanitizeBranchFragment(value)
-                  : "";
+                const worktreeBranchPrefix = normalizeWorktreeBranchPrefix(value);
                 if (
                   mixedWorktreeBranchPrefix ||
                   worktreeBranchPrefix !== settings.worktreeBranchPrefix

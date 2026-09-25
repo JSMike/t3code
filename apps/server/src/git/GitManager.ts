@@ -46,7 +46,6 @@ import {
   detectSourceControlProviderFromGitRemoteUrl,
   mergeGitStatusParts,
   normalizeGitRemoteUrl,
-  resolveAvailableGeneratedBranchName,
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
   sanitizeFeatureBranchName,
@@ -75,7 +74,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import { detectPrTemplate } from "../sourceControl/PrTemplateDetection.ts";
 import type { ChangeRequest } from "@t3tools/contracts";
-import { validateGeneratedBranchName } from "./GeneratedBranchName.ts";
+import { resolveGeneratedBranchName } from "./GeneratedBranchName.ts";
 
 export interface GitActionProgressReporter {
   readonly publish: (event: GitActionProgressEvent) => Effect.Effect<void, never>;
@@ -2670,10 +2669,9 @@ export const make = Effect.gen(function* () {
     }
 
     const hasCustomBranchPrompt = settings.prompts?.branchName !== undefined;
-    const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd);
     let resolvedBranch: string;
     if (hasCustomBranchPrompt) {
-      const validatedBranch = yield* validateGeneratedBranchName(
+      const validatedBranch = yield* resolveGeneratedBranchName(
         gitCore,
         cwd,
         suggestion.branch ?? "",
@@ -2685,10 +2683,13 @@ export const make = Effect.gen(function* () {
           detail: "The custom branch-name prompt returned an invalid or reserved Git branch name.",
         });
       }
-      resolvedBranch = resolveAvailableGeneratedBranchName(existingBranchNames, validatedBranch);
+      resolvedBranch = validatedBranch;
     } else {
       const preferredBranch = suggestion.branch ?? sanitizeFeatureBranchName(suggestion.subject);
-      resolvedBranch = resolveAutoFeatureBranchName(existingBranchNames, preferredBranch);
+      resolvedBranch = resolveAutoFeatureBranchName(
+        yield* gitCore.listLocalBranchNames(cwd),
+        preferredBranch,
+      );
     }
 
     yield* gitCore.createRef({ cwd, refName: resolvedBranch });

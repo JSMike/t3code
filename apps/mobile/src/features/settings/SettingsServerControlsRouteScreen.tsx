@@ -4,6 +4,7 @@ import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollVie
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import {
+  DEFAULT_SERVER_SETTINGS,
   type ResponseStreamingMode,
   type ServerSettings,
   type ServerSettingsPatch,
@@ -27,6 +28,7 @@ import {
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsControlRow } from "./components/SettingsControlRow";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
+import { WorktreeBranchPrefixField } from "./components/WorktreeBranchPrefixField";
 import { SettingsProjectOverridesSection } from "./components/SettingsProjectOverridesSection";
 import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
 import {
@@ -47,7 +49,7 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
 
 const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettingKey[]> = {
   "new-threads": ["defaultThreadEnvMode", "worktreeSubmodules", "defaultRuntimeMode"],
-  "source-control": ["defaultAutoPull", "newWorktreesStartFromOrigin"],
+  "source-control": ["defaultAutoPull", "newWorktreesStartFromOrigin", "worktreeBranchPrefix"],
   "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess"],
   maintenance: ["continueThreadsAfterServerUpdate"],
 };
@@ -344,6 +346,36 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       disabled={disabledFor("newWorktreesStartFromOrigin")}
                       onValueChange={(value) => write({ newWorktreesStartFromOrigin: value })}
                     />
+                    <View className="border-t border-border-subtle">
+                      <SettingsControlRow
+                        icon="arrow.triangle.branch"
+                        label="Branch prefix"
+                        subtitle="Leave blank for no prefix. A branch-name prompt in t3.json takes precedence."
+                        disabled={disabledFor("worktreeBranchPrefix")}
+                      >
+                        <WorktreeBranchPrefixField
+                          key={`${selectedProjectKey ?? "all"}:${targets.map((target) => target.environment.environmentId).join(",")}`}
+                          value={uniform("worktreeBranchPrefix")}
+                          disabled={disabledFor("worktreeBranchPrefix")}
+                          onValueChange={(worktreeBranchPrefix) => write({ worktreeBranchPrefix })}
+                        />
+                      </SettingsControlRow>
+                    </View>
+                    {!projectSelected &&
+                    uniform("worktreeBranchPrefix") !==
+                      DEFAULT_SERVER_SETTINGS.worktreeBranchPrefix ? (
+                      <SettingsRow
+                        icon="arrow.clockwise"
+                        label="Reset branch prefix"
+                        value={DEFAULT_SERVER_SETTINGS.worktreeBranchPrefix}
+                        disabled={disabledFor("worktreeBranchPrefix")}
+                        onPress={() =>
+                          write({
+                            worktreeBranchPrefix: DEFAULT_SERVER_SETTINGS.worktreeBranchPrefix,
+                          })
+                        }
+                      />
+                    ) : null}
                   </SettingsSection>
                 </>
               ) : null}

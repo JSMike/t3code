@@ -847,6 +847,11 @@ describe("ServerSettings worktree defaults", () => {
       expect(decodeServerSettingsPatch({ worktreeBranchPrefix }).worktreeBranchPrefix).toBe(
         worktreeBranchPrefix,
       );
+      expect(
+        decodeServerSettingsPatch({
+          projectSettingsOverrides: { "project-1": { worktreeBranchPrefix } },
+        }).projectSettingsOverrides?.["project-1"]?.worktreeBranchPrefix,
+      ).toBe(worktreeBranchPrefix);
     },
   );
 
@@ -854,6 +859,11 @@ describe("ServerSettings worktree defaults", () => {
     "rejects the unsafe worktree branch prefix %j",
     (worktreeBranchPrefix) => {
       expect(() => decodeServerSettingsPatch({ worktreeBranchPrefix })).toThrow();
+      expect(() =>
+        decodeServerSettingsPatch({
+          projectSettingsOverrides: { "project-1": { worktreeBranchPrefix } },
+        }),
+      ).toThrow();
     },
   );
 });

@@ -20,6 +20,37 @@ const projectId = ProjectId.make("project-a");
 const otherProjectId = ProjectId.make("project-b");
 
 describe("resolveProjectSettings", () => {
+  it("overrides a worktree prefix per project and restores inheritance when cleared", () => {
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      worktreeBranchPrefix: "team",
+      projectSettingsOverrides: {
+        [projectId]: { worktreeBranchPrefix: "" },
+        [otherProjectId]: { worktreeBranchPrefix: "backend" },
+      },
+    });
+    expect(resolveProjectSettings(settings, projectId).settings.worktreeBranchPrefix).toBe("");
+    expect(resolveProjectSettings(settings, projectId).sources.worktreeBranchPrefix).toBe(
+      "project",
+    );
+    expect(resolveProjectSettings(settings, otherProjectId).settings.worktreeBranchPrefix).toBe(
+      "backend",
+    );
+    expect(resolveProjectSettings(settings, null).settings.worktreeBranchPrefix).toBe("team");
+
+    const reset = applyServerSettingsPatch(settings, {
+      projectSettingsOverrides: {
+        [projectId]: clearProjectSettingsOverrides(settings, projectId, ["worktreeBranchPrefix"]),
+      },
+    });
+    expect(resolveProjectSettings(reset, projectId).settings.worktreeBranchPrefix).toBe("team");
+    expect(resolveProjectSettings(reset, projectId).sources.worktreeBranchPrefix).toBe(
+      "environment",
+    );
+    expect(resolveProjectSettings(reset, otherProjectId).settings.worktreeBranchPrefix).toBe(
+      "backend",
+    );
+  });
+
   it("inherits every scopable key when the project has no overrides", () => {
     const resolved = resolveProjectSettings(DEFAULT_SERVER_SETTINGS, projectId);
     expect(resolved.settings).toBe(DEFAULT_SERVER_SETTINGS);
