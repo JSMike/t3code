@@ -1055,6 +1055,7 @@ const buildAppUnderTest = (options?: {
           getActiveProjectByWorkspaceRoot: () => Effect.succeedNone,
           getFirstActiveThreadIdByProjectId: () => Effect.succeedNone,
           getImportedAgentSessionSources: () => Effect.succeed([]),
+          getProviderBoundThreads: () => Effect.succeed([]),
           getThreadCheckpointContext: () => Effect.succeedNone,
           ...options?.layers?.projectionSnapshotQuery,
         }),
@@ -6032,6 +6033,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
             projectionSnapshotQuery: {
               getThreadDetailById: () => Effect.succeedNone,
+              getProviderBoundThreads: () =>
+                Effect.succeed(
+                  ["native-thread", `import:codex:${ids[3]}`].map((threadId) => ({
+                    threadId: ThreadId.make(threadId),
+                    archived: false,
+                  })),
+                ),
               getImportedAgentSessionSources: () =>
                 Effect.succeed([
                   {
