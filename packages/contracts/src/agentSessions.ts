@@ -1,5 +1,11 @@
 import * as Schema from "effect/Schema";
-import { IsoDateTime, NonNegativeInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  IsoDateTime,
+  NonNegativeInt,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 /** Coding agent home directories the scanner knows how to read. */
@@ -23,6 +29,19 @@ export type AgentSessionImportSource = typeof AgentSessionImportSource.Type;
 /** Imported message ids retain their origin after event metadata is projected into SQLite. */
 export function isImportedAgentSessionMessageId(messageId: string): boolean {
   return messageId.startsWith("import:");
+}
+
+/** Imported threads get a deterministic id, so importing a session again finds the same thread. */
+export function importedAgentSessionThreadId(
+  providerInstanceId: string,
+  providerSessionId: string,
+): ThreadId {
+  return ThreadId.make(`import:${providerInstanceId}:${providerSessionId}`);
+}
+
+/** Recognize import-owned IDs; the prefix alone does not establish that history was published. */
+export function isImportedAgentSessionThreadId(threadId: string): boolean {
+  return threadId.startsWith("import:");
 }
 
 /**
@@ -102,6 +121,41 @@ export const AgentSessionImportResult = Schema.Struct({
   skippedCount: NonNegativeInt,
 });
 export type AgentSessionImportResult = typeof AgentSessionImportResult.Type;
+
+export const AgentSessionListInput = Schema.Struct({ projectId: ProjectId });
+export type AgentSessionListInput = typeof AgentSessionListInput.Type;
+
+/** A provider-owned session in the project's checkout or one of its linked worktrees. */
+export const ResumableAgentSession = Schema.Struct({
+  provider: AgentSessionSource,
+  providerInstanceId: ProviderInstanceId,
+  sessionId: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  cwd: TrimmedNonEmptyString,
+  branch: Schema.NullOr(Schema.String),
+  updatedAt: IsoDateTime,
+});
+export type ResumableAgentSession = typeof ResumableAgentSession.Type;
+
+export const AgentSessionListResult = Schema.Struct({
+  sessions: Schema.Array(ResumableAgentSession),
+  truncated: Schema.Boolean,
+});
+export type AgentSessionListResult = typeof AgentSessionListResult.Type;
+
+export const AgentSessionAttachInput = Schema.Struct({
+  projectId: ProjectId,
+  providerInstanceId: ProviderInstanceId,
+  sessionId: TrimmedNonEmptyString,
+});
+export type AgentSessionAttachInput = typeof AgentSessionAttachInput.Type;
+
+export const AgentSessionAttachResult = Schema.Struct({ threadId: ThreadId });
+
+export class AgentSessionResumeError extends Schema.TaggedError<AgentSessionResumeError>()(
+  "AgentSessionResumeError",
+  { message: Schema.String },
+) {}
 
 export class AgentSessionScanError extends Schema.TaggedError<AgentSessionScanError>()(
   "AgentSessionScanError",

@@ -1,4 +1,5 @@
 import { WS_METHODS } from "@t3tools/contracts";
+import { createAgentSessionResumeAtoms } from "@t3tools/client-runtime/state/agentSessions";
 import {
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
@@ -23,3 +24,6 @@ export const agentSessionImport = createEnvironmentRpcCommand(connectionAtomRunt
   label: "environment-data:agent-sessions:import",
   tag: WS_METHODS.agentSessionsImport,
 });
+
+export const { list: agentSessionList, attach: agentSessionAttach } =
+  createAgentSessionResumeAtoms(connectionAtomRuntime);

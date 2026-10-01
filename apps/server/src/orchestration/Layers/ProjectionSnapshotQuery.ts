@@ -2,6 +2,7 @@ import {
   AgentSessionImportSource,
   ApprovalRequestId,
   ChatAttachment,
+  importedAgentSessionThreadId,
   OrchestrationMessageContext,
   CheckpointRef,
   IsoDateTime,
@@ -206,6 +207,12 @@ const ProjectIdLookupInput = Schema.Struct({
 const ProjectionImportedAgentSessionSourcesRowSchema = Schema.Struct({
   threadId: ThreadId,
   runtimePayload: Schema.Unknown,
+});
+const ProjectionProviderBoundThreadRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  projectId: ProjectId,
+  archived: Schema.Number,
+  importedHistory: Schema.Number,
 });
 const ThreadIdLookupInput = Schema.Struct({
   threadId: ThreadId,
@@ -1264,6 +1271,28 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               AND messages.message_id GLOB 'import:*'
           )
         ORDER BY threads.thread_id ASC
+      `,
+  });
+
+  const listProviderBoundThreadRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionProviderBoundThreadRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          threads.thread_id AS "threadId",
+          threads.project_id AS "projectId",
+          threads.archived_at IS NOT NULL AS archived,
+          threads.thread_id GLOB 'import:*' AND EXISTS (
+            SELECT 1
+            FROM projection_thread_messages AS messages
+            WHERE messages.thread_id = threads.thread_id
+              AND messages.message_id GLOB 'import:*'
+          ) AS "importedHistory"
+        FROM projection_threads AS threads
+        INNER JOIN provider_session_runtime AS runtime
+          ON runtime.thread_id = threads.thread_id
+        WHERE threads.deleted_at IS NULL
       `,
   });
 
@@ -3182,7 +3211,10 @@ pending_approval_requests AS (
           if (
             Option.isNone(source) ||
             row.threadId !==
-              `import:${source.value.providerInstanceId}:${source.value.providerSessionId}`
+              importedAgentSessionThreadId(
+                source.value.providerInstanceId,
+                source.value.providerSessionId,
+              )
           ) {
             return [];
           }
@@ -3190,6 +3222,25 @@ pending_approval_requests AS (
         });
       });
     });
+
+  /** Read session ownership metadata without loading histories; deleted threads release their claim. */
+  const getProviderBoundThreads: ProjectionSnapshotQueryShape["getProviderBoundThreads"] = () =>
+    listProviderBoundThreadRows(undefined).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getProviderBoundThreads:query",
+          "ProjectionSnapshotQuery.getProviderBoundThreads:decodeRows",
+        ),
+      ),
+      Effect.map((rows) =>
+        rows.map((row) => ({
+          threadId: row.threadId,
+          projectId: row.projectId,
+          archived: row.archived !== 0,
+          importedHistory: row.importedHistory !== 0,
+        })),
+      ),
+    );
 
   const getThreadCheckpointContext: ProjectionSnapshotQueryShape["getThreadCheckpointContext"] = (
     threadId,
@@ -3854,6 +3905,7 @@ pending_approval_requests AS (
     getProjectShells,
     getFirstActiveThreadIdByProjectId,
     getImportedAgentSessionSources,
+    getProviderBoundThreads,
     getThreadCheckpointContext,
     getFullThreadDiffContext,
     getThreadShellById,
