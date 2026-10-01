@@ -42,6 +42,7 @@ import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSele
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
 import { PreviousWorktreeItemContent } from "./PreviousWorktreeItemContent";
 import { ComposerControl } from "./chat/ComposerControl";
+import { ResumeSessionPicker } from "./ResumeSessionPicker";
 import {
   Menu,
   MenuGroup,
@@ -498,6 +499,7 @@ function useLabelsOverflow(element: HTMLDivElement | null): boolean {
   return overflows;
 }
 
+/** Provide checkout controls for drafts and threads, with external-session resume available on drafts. */
 export const BranchToolbar = memo(function BranchToolbar({
   layout = "composer",
   panelSection = "all",
@@ -722,6 +724,13 @@ export const BranchToolbar = memo(function BranchToolbar({
             />
           ) : null}
         </div>
+      ) : null}
+
+      {draftThread && !serverThread && !envLocked && activeProjectRef ? (
+        <ResumeSessionPicker
+          key={`${activeProjectRef.environmentId}:${activeProjectRef.projectId}`}
+          projectRef={activeProjectRef}
+        />
       ) : null}
 
       {composerControlsHostRef ? (

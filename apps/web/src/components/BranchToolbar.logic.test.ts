@@ -434,6 +434,7 @@ describe("shouldShowComposerContextStrip", () => {
         isGitRepo: true,
         showEnvironmentIndicator: true,
         hostsRestingComposerControls,
+        hostsResumePicker: false,
       };
       expect(shouldShowComposerContextStrip({ ...input, persistInActiveThreads: false })).toBe(
         false,
@@ -451,6 +452,7 @@ describe("shouldShowComposerContextStrip", () => {
         isGitRepo: false,
         showEnvironmentIndicator: true,
         hostsRestingComposerControls: false,
+        hostsResumePicker: false,
       }),
     ).toBe(true);
   });
@@ -464,6 +466,7 @@ describe("shouldShowComposerContextStrip", () => {
         isGitRepo: false,
         showEnvironmentIndicator: false,
         hostsRestingComposerControls: false,
+        hostsResumePicker: false,
       }),
     ).toBe(false);
   });
@@ -477,6 +480,21 @@ describe("shouldShowComposerContextStrip", () => {
         isGitRepo: false,
         showEnvironmentIndicator: false,
         hostsRestingComposerControls: true,
+        hostsResumePicker: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the strip for a new thread's Resume picker in a non-Git project", () => {
+    expect(
+      shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
+        hasActiveProject: true,
+        isGitRepo: false,
+        showEnvironmentIndicator: false,
+        hostsRestingComposerControls: false,
+        hostsResumePicker: true,
       }),
     ).toBe(true);
   });
@@ -490,6 +508,7 @@ describe("shouldShowComposerContextStrip", () => {
         isGitRepo: true,
         showEnvironmentIndicator: false,
         hostsRestingComposerControls: false,
+        hostsResumePicker: false,
       }),
     ).toBe(true);
   });

@@ -815,6 +815,8 @@ export const OrchestrationV2ProviderThread = Schema.Struct({
   appThreadId: Schema.NullOr(ThreadId),
   ownerNodeId: Schema.NullOr(NodeId),
   nativeThreadRef: Schema.NullOr(OrchestrationV2ProviderRef),
+  /** Imported native sessions already exist before their first T3 provider turn. */
+  nativeThreadOrigin: Schema.optional(Schema.Literal("imported")),
   nativeConversationHeadRef: Schema.NullOr(OrchestrationV2ProviderRef),
   status: Schema.Literals(["not_loaded", "idle", "active", "archived", "closed", "error"]),
   firstRunOrdinal: Schema.NullOr(PositiveInt),

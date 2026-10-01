@@ -670,12 +670,23 @@ function visibleDeltaRunOrdinals(
 }
 
 export function shouldPrepareLegacyImportHandoff(input: {
+  readonly providerThread:
+    | Pick<OrchestrationV2ProviderThread, "nativeThreadRef" | "handoffIds">
+    | undefined;
   readonly hasCompletedRun: boolean;
   readonly historyOrigin: OrchestrationV2AppThread["historyOrigin"];
   readonly legacyImportItemCount: number;
 }): boolean {
+  // An imported native session already owns this history. A session created by
+  // an earlier handoff still needs the handoff retried until a run completes.
+  const resumesImportedNativeThread =
+    input.providerThread?.nativeThreadRef?.nativeId != null &&
+    input.providerThread.handoffIds.length === 0;
   return (
-    input.historyOrigin === "v1_import" && !input.hasCompletedRun && input.legacyImportItemCount > 0
+    input.historyOrigin === "v1_import" &&
+    !resumesImportedNativeThread &&
+    !input.hasCompletedRun &&
+    input.legacyImportItemCount > 0
   );
 }
 
@@ -5058,6 +5069,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             nativeThreadId: `pending:${runId}`,
           });
         const legacyImportHandoff = shouldPrepareLegacyImportHandoff({
+          providerThread: activeProviderThread,
           historyOrigin: projection.thread.historyOrigin,
           hasCompletedRun: latestCompletedRun !== undefined,
           legacyImportItemCount: legacyImportItems.length,

@@ -1,6 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
-import { ContextHandoffId, OrchestrationV2Command, ThreadId } from "@t3tools/contracts";
+import {
+  ContextHandoffId,
+  OrchestrationV2Command,
+  ProviderDriverKind,
+  ThreadId,
+} from "@t3tools/contracts";
 
 import {
   appendContextHandoffId,
@@ -11,6 +16,7 @@ import {
 it("reissues imported context until a V2 run completes", () => {
   assert.isTrue(
     shouldPrepareLegacyImportHandoff({
+      providerThread: undefined,
       historyOrigin: "v1_import",
       hasCompletedRun: false,
       legacyImportItemCount: 2,
@@ -18,6 +24,7 @@ it("reissues imported context until a V2 run completes", () => {
   );
   assert.isFalse(
     shouldPrepareLegacyImportHandoff({
+      providerThread: undefined,
       historyOrigin: "v1_import",
       hasCompletedRun: true,
       legacyImportItemCount: 2,
@@ -25,6 +32,7 @@ it("reissues imported context until a V2 run completes", () => {
   );
   assert.isFalse(
     shouldPrepareLegacyImportHandoff({
+      providerThread: undefined,
       historyOrigin: undefined,
       hasCompletedRun: false,
       legacyImportItemCount: 2,
@@ -32,9 +40,44 @@ it("reissues imported context until a V2 run completes", () => {
   );
   assert.isFalse(
     shouldPrepareLegacyImportHandoff({
+      providerThread: undefined,
       historyOrigin: "v1_import",
       hasCompletedRun: false,
       legacyImportItemCount: 0,
+    }),
+  );
+});
+
+it("resumes imported native context while retaining failed handoff retries", () => {
+  const input = {
+    historyOrigin: "v1_import" as const,
+    hasCompletedRun: false,
+    legacyImportItemCount: 2,
+  };
+  const nativeThreadRef = {
+    driver: ProviderDriverKind.make("codex"),
+    nativeId: "external-session",
+    strength: "strong" as const,
+  };
+  assert.isFalse(
+    shouldPrepareLegacyImportHandoff({
+      ...input,
+      providerThread: { nativeThreadRef, handoffIds: [] },
+    }),
+  );
+  assert.isTrue(
+    shouldPrepareLegacyImportHandoff({
+      ...input,
+      providerThread: { nativeThreadRef: { ...nativeThreadRef, nativeId: null }, handoffIds: [] },
+    }),
+  );
+  assert.isTrue(
+    shouldPrepareLegacyImportHandoff({
+      ...input,
+      providerThread: {
+        nativeThreadRef,
+        handoffIds: [ContextHandoffId.make("failed-import-handoff")],
+      },
     }),
   );
 });

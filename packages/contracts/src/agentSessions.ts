@@ -1,5 +1,11 @@
 import * as Schema from "effect/Schema";
-import { IsoDateTime, NonNegativeInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  IsoDateTime,
+  NonNegativeInt,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 /** Coding agent home directories the scanner knows how to read. */
@@ -19,6 +25,14 @@ export const AgentSessionImportSource = Schema.Struct({
   birthtimeMs: Schema.NullOr(Schema.Number),
 });
 export type AgentSessionImportSource = typeof AgentSessionImportSource.Type;
+
+/** Imported threads get a deterministic id, so importing a session again finds the same thread. */
+export function importedAgentSessionThreadId(
+  providerInstanceId: string,
+  providerSessionId: string,
+): ThreadId {
+  return ThreadId.make(`import:${providerInstanceId}:${providerSessionId}`);
+}
 
 /**
  * Empty for now. Kept as a struct so future scan options (source filters,
@@ -97,6 +111,60 @@ export const AgentSessionImportResult = Schema.Struct({
   skippedCount: NonNegativeInt,
 });
 export type AgentSessionImportResult = typeof AgentSessionImportResult.Type;
+
+export const AgentSessionListInput = Schema.Struct({ projectId: ProjectId });
+export type AgentSessionListInput = typeof AgentSessionListInput.Type;
+
+/** A provider-owned session in the project's checkout or one of its linked worktrees. */
+export const ResumableAgentSession = Schema.Struct({
+  provider: AgentSessionSource,
+  providerInstanceId: ProviderInstanceId,
+  sessionId: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  cwd: TrimmedNonEmptyString,
+  branch: Schema.NullOr(Schema.String),
+  updatedAt: IsoDateTime,
+});
+export type ResumableAgentSession = typeof ResumableAgentSession.Type;
+
+export const AgentSessionListResult = Schema.Struct({
+  sessions: Schema.Array(ResumableAgentSession),
+  truncated: Schema.Boolean,
+});
+export type AgentSessionListResult = typeof AgentSessionListResult.Type;
+
+/** Exact native identity lookup on one environment, before a project is selected. */
+export const AgentSessionLookupInput = Schema.Struct({
+  sessionId: TrimmedNonEmptyString,
+  provider: Schema.optional(AgentSessionSource),
+});
+export type AgentSessionLookupInput = typeof AgentSessionLookupInput.Type;
+
+export const AgentSessionLookupMatch = Schema.Struct({
+  session: ResumableAgentSession,
+  project: AgentSessionProjectCandidate,
+});
+export type AgentSessionLookupMatch = typeof AgentSessionLookupMatch.Type;
+
+export const AgentSessionLookupResult = Schema.Struct({
+  matches: Schema.Array(AgentSessionLookupMatch),
+  truncated: Schema.Boolean,
+});
+export type AgentSessionLookupResult = typeof AgentSessionLookupResult.Type;
+
+export const AgentSessionAttachInput = Schema.Struct({
+  projectId: ProjectId,
+  providerInstanceId: ProviderInstanceId,
+  sessionId: TrimmedNonEmptyString,
+});
+export type AgentSessionAttachInput = typeof AgentSessionAttachInput.Type;
+
+export const AgentSessionAttachResult = Schema.Struct({ threadId: ThreadId });
+
+export class AgentSessionResumeError extends Schema.TaggedError<AgentSessionResumeError>()(
+  "AgentSessionResumeError",
+  { message: Schema.String },
+) {}
 
 export class AgentSessionScanError extends Schema.TaggedError<AgentSessionScanError>()(
   "AgentSessionScanError",

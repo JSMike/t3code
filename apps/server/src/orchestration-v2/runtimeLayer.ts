@@ -6,7 +6,7 @@ import * as OrchestrationEventStore from "../persistence/Layers/OrchestrationEve
 import { layer as providerSessionRuntimeLayer } from "../persistence/ProviderSessionRuntime.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { ProviderAuthServiceLive } from "../provider/Layers/ProviderAuthService.ts";
-import { layer as agentSessionImporterLayer } from "../project/AgentSessionImporter.ts";
+import * as AgentSessionImporter from "../project/AgentSessionImporter.ts";
 import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import { layer as projectServiceLayer } from "../project/ProjectService.ts";
 import { layer as projectSetupScriptRunnerLayer } from "../project/ProjectSetupScriptRunner.ts";
@@ -219,12 +219,12 @@ const orchestratorProvided = orchestratorLayer.pipe(
   ),
 );
 
-const agentSessionImporterProvided = agentSessionImporterLayer.pipe(
+const agentSessionImporterProvided = AgentSessionImporter.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       AgentSessionScanner.layer,
       ProjectServiceLayerLive,
-      orchestratorProvided,
+      projectionStoreLayer,
       eventSinkProvided,
       idAllocatorLayer,
       providerSessionRuntimeLayer,

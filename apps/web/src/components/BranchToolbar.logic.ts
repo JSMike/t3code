@@ -64,6 +64,7 @@ export function shouldShowEnvironmentIndicator(input: {
   return input.activeEnvironment !== null && !input.activeEnvironment.isPrimary;
 }
 
+/** Keep the strip for project context or hosted controls, including Resume in non-Git projects. */
 export function shouldShowComposerContextStrip(input: {
   isDraftHeroState: boolean;
   persistInActiveThreads: boolean;
@@ -72,11 +73,16 @@ export function shouldShowComposerContextStrip(input: {
   showEnvironmentIndicator: boolean;
   /** A collapsed composer's controls currently fit in their measured strip host. */
   hostsRestingComposerControls: boolean;
+  /** New threads offer the Resume picker in the strip. */
+  hostsResumePicker: boolean;
 }): boolean {
   return (
     input.hasActiveProject &&
     (input.isDraftHeroState || input.persistInActiveThreads) &&
-    (input.isGitRepo || input.showEnvironmentIndicator || input.hostsRestingComposerControls)
+    (input.isGitRepo ||
+      input.showEnvironmentIndicator ||
+      input.hostsRestingComposerControls ||
+      input.hostsResumePicker)
   );
 }
 

@@ -115,6 +115,14 @@
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
     },
+    "./state/agentSessions": {
+      "types": "./src/state/agentSessions.ts",
+      "default": "./src/state/agentSessions.ts"
+    },
+    "./state/useAgentSessionLookup": {
+      "types": "./src/state/useAgentSessionLookup.ts",
+      "default": "./src/state/useAgentSessionLookup.ts"
+    },
     "./state/auth": {
       "types": "./src/state/auth.ts",
       "default": "./src/state/auth.ts"
@@ -385,8 +393,17 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@types/react": "~19.3.0",
     "@types/three": "0.180.0",
     "micromark-util-types": "^2.0.2",
     "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "react": ">=19"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

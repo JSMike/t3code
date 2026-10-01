@@ -1132,13 +1132,16 @@ function AgentInstallTerminal({
 
 // ── Step 4: import ───────────────────────────────────────────
 
-function ImportStep({
+export function ImportStep({
   scans,
+  resumeOnly = false,
   isImporting,
   setIsImporting,
   onDone,
 }: {
   readonly scans: ReturnType<typeof useProjectScans>;
+  /** A targeted resume onboards the project without bulk-importing unrelated sessions. */
+  readonly resumeOnly?: boolean;
   readonly isImporting: boolean;
   readonly setIsImporting: (value: boolean) => void;
   readonly onDone: (
@@ -1153,6 +1156,7 @@ function ImportStep({
   const projects = useProjects();
   const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string> | null>(null);
   const importWarningRef = useRef("");
+  const [importError, setImportError] = useState<string | null>(null);
   const importedThreadCountRef = useRef(0);
   const [landingProject, setLandingProject] = useState<ScopedProjectRef | null>(null);
   // Keep project creation attempts separate from completed history imports so both can retry.
@@ -1204,8 +1208,10 @@ function ImportStep({
     [scans],
   );
   const selectedKeys = useMemo(
-    () => selectedPaths ?? new Set(recent.map((candidate) => candidate.key)),
-    [selectedPaths, recent],
+    () =>
+      selectedPaths ??
+      new Set((resumeOnly ? candidates : recent).map((candidate) => candidate.key)),
+    [selectedPaths, recent, resumeOnly, candidates],
   );
   const selected = candidates.filter((candidate) => selectedKeys.has(candidate.key));
 
@@ -1230,6 +1236,7 @@ function ImportStep({
       return;
     }
     setIsImporting(true);
+    setImportError(null);
     importWarningRef.current = "";
     importedThreadCountRef.current = 0;
     lastImportSelectionRef.current = selection.map((candidate) => candidate.key);
@@ -1287,12 +1294,27 @@ function ImportStep({
           return;
         }
         if (result._tag !== "Success") {
+          if (resumeOnly) {
+            const cause = squashAtomCommandFailure(result);
+            setImportError(
+              cause instanceof Error ? cause.message : "Could not import project. Try again.",
+            );
+            setIsImporting(false);
+            projectAttempts.delete(candidate.key);
+            return;
+          }
           if (!isAtomCommandInterrupted(result)) {
             projectAttempts.delete(candidate.key);
             refreshEnvironments.add(environmentId);
           }
           continue;
         }
+      }
+
+      if (resumeOnly) {
+        importedProjectsCount += 1;
+        importedProjects.set(candidate.key, scopeProjectRef(environmentId, projectId));
+        continue;
       }
 
       const threadImportResult = await importThreads({
@@ -1364,8 +1386,17 @@ function ImportStep({
   return (
     <StepShell
       title="Choose your projects"
-      description="Import projects and conversations from your selected computers."
+      description={
+        resumeOnly
+          ? "Import this project to continue the selected session."
+          : "Import projects and conversations from your selected computers."
+      }
     >
+      {importError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {importError}
+        </p>
+      ) : null}
       {candidates.length > 0 ? (
         <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <span role="status">
@@ -1455,7 +1486,9 @@ function ImportStep({
         >
           {isImporting
             ? "Importing…"
-            : `Import ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
+            : resumeOnly
+              ? "Import project and resume"
+              : `Import ${selected.length} ${selected.length === 1 ? "project" : "projects"}`}
         </Button>
       </div>
     </StepShell>

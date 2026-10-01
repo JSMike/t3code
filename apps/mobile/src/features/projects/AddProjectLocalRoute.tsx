@@ -3,6 +3,9 @@ import { AddProjectLocalFolderScreen } from "./AddProjectScreen";
 
 type AddProjectLocalRouteParams = {
   readonly environmentId?: string | string[];
+  readonly workspaceRoot?: string;
+  readonly resumeSessionId?: string;
+  readonly resumeProviderInstanceId?: string;
 };
 
 export function AddProjectLocalRoute({

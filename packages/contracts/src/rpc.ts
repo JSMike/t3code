@@ -67,10 +67,17 @@ import {
   FilesystemBrowseError,
 } from "./filesystem.ts";
 import {
+  AgentSessionListInput,
+  AgentSessionListResult,
+  AgentSessionAttachInput,
+  AgentSessionAttachResult,
+  AgentSessionResumeError,
   AgentSessionImportInput,
   AgentSessionImportProjectChangedError,
   AgentSessionImportProjectNotFoundError,
   AgentSessionImportResult,
+  AgentSessionLookupInput,
+  AgentSessionLookupResult,
   AgentSessionScanInput,
   AgentSessionScanResult,
   AgentSessionScanError,
@@ -355,8 +362,11 @@ export const WS_METHODS = {
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
+  agentSessionsLookup: "agentSessions.lookup",
   agentSessionsScan: "agentSessions.scan",
   agentSessionsImport: "agentSessions.import",
+  agentSessionsList: "agentSessions.list",
+  agentSessionsAttach: "agentSessions.attach",
   assetsCreateUrl: "assets.createUrl",
   assetsPersistChatAttachments: "assets.persistChatAttachments",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
@@ -1183,6 +1193,12 @@ const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   error: Schema.Union([FilesystemBrowseError, EnvironmentAuthorizationError]),
 });
 
+const WsAgentSessionsLookupRpc = Rpc.make(WS_METHODS.agentSessionsLookup, {
+  payload: AgentSessionLookupInput,
+  success: AgentSessionLookupResult,
+  error: Schema.Union([AgentSessionScanError, EnvironmentAuthorizationError]),
+});
+
 const WsAgentSessionsScanRpc = Rpc.make(WS_METHODS.agentSessionsScan, {
   payload: AgentSessionScanInput,
   success: AgentSessionScanResult,
@@ -1196,6 +1212,27 @@ const WsAgentSessionsImportRpc = Rpc.make(WS_METHODS.agentSessionsImport, {
     AgentSessionImportProjectChangedError,
     AgentSessionImportProjectNotFoundError,
     AgentSessionScanError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAgentSessionsListRpc = Rpc.make(WS_METHODS.agentSessionsList, {
+  payload: AgentSessionListInput,
+  success: AgentSessionListResult,
+  error: Schema.Union([
+    AgentSessionImportProjectNotFoundError,
+    AgentSessionScanError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsAgentSessionsAttachRpc = Rpc.make(WS_METHODS.agentSessionsAttach, {
+  payload: AgentSessionAttachInput,
+  success: AgentSessionAttachResult,
+  error: Schema.Union([
+    AgentSessionImportProjectNotFoundError,
+    AgentSessionScanError,
+    AgentSessionResumeError,
     EnvironmentAuthorizationError,
   ]),
 });
@@ -1798,8 +1835,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
+  WsAgentSessionsLookupRpc,
   WsAgentSessionsScanRpc,
   WsAgentSessionsImportRpc,
+  WsAgentSessionsListRpc,
+  WsAgentSessionsAttachRpc,
   WsAssetsCreateUrlRpc,
   WsAssetsPersistChatAttachmentsRpc,
   WsAttachmentsCreateUploadUrlRpc,

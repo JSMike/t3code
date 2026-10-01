@@ -920,6 +920,9 @@ importers:
       micromark-util-character:
         specifier: ^2.1.1
         version: 2.1.1
+      react:
+        specifier: '>=19'
+        version: 19.2.6
       remark-parse:
         specifier: ^11.0.0
         version: 11.0.0
@@ -933,6 +936,9 @@ importers:
       '@effect/vitest':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(patch_hash=172bd95ef73a13d322888984415d5d18d9d2aa8e13fa529eac235efac837e902)(effect@4.0.0-rc.115(patch_hash=0dfc4bb8ebd80fb3e06b91ef61346f5259517ab0f2437644fe95ae531084b1f5))
+      '@types/react':
+        specifier: ~19.3.0
+        version: 19.3.0
       '@types/three':
         specifier: 0.180.0
         version: 0.180.0

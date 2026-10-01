@@ -1,5 +1,7 @@
 "use client";
 
+import { parseAgentSessionReference } from "@t3tools/client-runtime/state/agentSessions";
+import { SessionReferenceLookup } from "./SessionReferenceLookup";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -1839,7 +1841,7 @@ function OpenCommandPaletteDialog(props: {
   }, [clearOpenIntent, openAddProjectFlow, openIntent]);
 
   useLayoutEffect(() => {
-    if (openIntent?.kind !== "new-thread-in" || projectThreadItems.length === 0) {
+    if (openIntent?.kind !== "new-thread-in") {
       return;
     }
     clearOpenIntent();
@@ -1907,16 +1909,6 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     }
-
-    actionItems.push({
-      kind: "submenu",
-      value: "action:new-thread-in",
-      searchTerms: ["new thread", "project", "pick", "choose", "select"],
-      title: "New thread in...",
-      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
-      addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-      groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
-    });
   }
 
   if (scratchTargetEnvironmentId !== null) {
@@ -1930,6 +1922,15 @@ function OpenCommandPaletteDialog(props: {
       run: () => startScratchThread(scratchTargetEnvironmentId),
     });
   }
+  actionItems.push({
+    kind: "submenu",
+    value: "action:new-thread-in",
+    searchTerms: ["new thread", "project", "pick", "choose", "select", "resume", "CLI"],
+    title: "New thread in...",
+    icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+    addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+    groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+  });
 
   if (activeThreadReferenceCopyTarget !== null) {
     actionItems.push({
@@ -3039,6 +3040,14 @@ function OpenCommandPaletteDialog(props: {
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (sessionReference) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        document.getElementById("find-cli-session")?.click();
+      }
+      return;
+    }
     const command = resolveShortcutCommand(event, keybindings, {
       platform: navigator.platform,
       context: { modelPickerOpen: false },
@@ -3401,6 +3410,11 @@ function OpenCommandPaletteDialog(props: {
     </CommandFooterAction>
   ) : null;
 
+  const sessionReference =
+    currentView?.groups[0]?.value === "projects" && !isBrowsing && !isRemoteProjectCloneFlow
+      ? parseAgentSessionReference(query)
+      : null;
+
   return (
     <CommandPaletteContent
       key={`${viewStack.length}-${browseGeneration}-${isBrowsing}-${newProjectFlow ? "new-project" : (addProjectCloneFlow?.step ?? "none")}`}
@@ -3421,7 +3435,10 @@ function OpenCommandPaletteDialog(props: {
                   hasHighlightedBrowseItem,
                 })
               : undefined,
-        placeholder: inputPlaceholder,
+        placeholder:
+          currentView?.groups[0]?.value === "projects"
+            ? "Search projects or paste a resume command…"
+            : inputPlaceholder,
         ...(isSubmenu
           ? {
               startAddon: (
@@ -3488,32 +3505,42 @@ function OpenCommandPaletteDialog(props: {
           </div>
         </div>
       ) : null}
-      <CommandPaletteVirtualizedResults
-        rows={resultRows.rows}
-        listRef={resultListRef}
-        highlightedItemValue={highlightedItemValue}
-        isActionsOnly={isActionsOnly}
-        keybindings={keybindings}
-        onExecuteItem={executeItem}
-        {...(addProjectCloneFlow?.step === "repository"
-          ? {
-              emptyStateMessage:
-                addProjectCloneFlow.source === "url"
-                  ? "Enter a Git clone URL and press Enter to continue."
-                  : "Enter a repository path and press Enter to look it up.",
-            }
-          : addProjectCloneFlow?.step === "confirm"
-            ? { emptyStateMessage: "Choose a destination path and press Enter to clone." }
-            : relativePathNeedsActiveProject
-              ? { emptyStateMessage: "Relative paths require an active project." }
-              : willCreateProjectPath
-                ? {
-                    emptyStateMessage: "Press Enter to create this folder and add it as a project.",
-                  }
-                : threadSearch.isPending
-                  ? { emptyStateMessage: "Searching thread messages…" }
-                  : {})}
-      />
+      {sessionReference ? (
+        <SessionReferenceLookup
+          key={`${sessionReference.provider ?? "any"}:${sessionReference.sessionId}`}
+          input={sessionReference}
+          environmentId={currentProjectEnvironmentId ?? primaryEnvironmentId}
+          onDone={() => setOpen(false)}
+        />
+      ) : (
+        <CommandPaletteVirtualizedResults
+          rows={resultRows.rows}
+          listRef={resultListRef}
+          highlightedItemValue={highlightedItemValue}
+          isActionsOnly={isActionsOnly}
+          keybindings={keybindings}
+          onExecuteItem={executeItem}
+          {...(addProjectCloneFlow?.step === "repository"
+            ? {
+                emptyStateMessage:
+                  addProjectCloneFlow.source === "url"
+                    ? "Enter a Git clone URL and press Enter to continue."
+                    : "Enter a repository path and press Enter to look it up.",
+              }
+            : addProjectCloneFlow?.step === "confirm"
+              ? { emptyStateMessage: "Choose a destination path and press Enter to clone." }
+              : relativePathNeedsActiveProject
+                ? { emptyStateMessage: "Relative paths require an active project." }
+                : willCreateProjectPath
+                  ? {
+                      emptyStateMessage:
+                        "Press Enter to create this folder and add it as a project.",
+                    }
+                  : threadSearch.isPending
+                    ? { emptyStateMessage: "Searching thread messages…" }
+                    : {})}
+        />
+      )}
     </CommandPaletteContent>
   );
 }

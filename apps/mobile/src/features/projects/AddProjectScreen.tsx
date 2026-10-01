@@ -1,3 +1,4 @@
+import { agentSessionAttach } from "../../state/agentSessions";
 import { MaterialListRow } from "../../components/MaterialListRow";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
@@ -43,6 +44,7 @@ import {
   type EnvironmentId,
   type EnvironmentMachineKind,
   ProjectId,
+  ProviderInstanceId,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import { CommonActions, StackActions, useNavigation } from "@react-navigation/native";
@@ -663,7 +665,18 @@ function openNewTaskDraft(
   );
 }
 
-function useCreateProject(environment: EnvironmentOption | null) {
+function useCreateProject(
+  environment: EnvironmentOption | null,
+  resume?: { sessionId: string; providerInstanceId: string },
+) {
+  const attachSession = useAtomCommand(agentSessionAttach, { reportFailure: false });
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const navigation = useNavigation();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const projects = useProjects();
@@ -677,6 +690,47 @@ function useCreateProject(environment: EnvironmentOption | null) {
         environmentId: environment.environmentId,
         path: workspaceRoot,
       });
+      if (resume) {
+        const projectId = existing?.id ?? ProjectId.make(uuidv4());
+        if (!existing) {
+          const created = await createProject({
+            environmentId: environment.environmentId,
+            input: {
+              ...buildProjectCreateCommand({
+                commandId: CommandId.make(uuidv4()),
+                projectId,
+                workspaceRoot,
+              }),
+              createWorkspaceRootIfMissing: false,
+            },
+          });
+          if (created._tag !== "Success") return created;
+        }
+        const attached = await attachSession({
+          environmentId: environment.environmentId,
+          input: {
+            projectId,
+            sessionId: resume.sessionId,
+            providerInstanceId: ProviderInstanceId.make(resume.providerInstanceId),
+          },
+        });
+        if (attached._tag === "Success" && mounted.current)
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [
+                {
+                  name: "Thread",
+                  params: {
+                    environmentId: environment.environmentId,
+                    threadId: attached.value.threadId,
+                  },
+                },
+              ],
+            }),
+          );
+        return attached;
+      }
       if (existing) {
         Alert.alert("Project already exists", existing.title);
         navigation.dispatch(
@@ -727,7 +781,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
       );
       return result;
     },
-    [createProject, environment, projects, navigation],
+    [createProject, environment, projects, navigation, resume, attachSession],
   );
 }
 
@@ -781,7 +835,7 @@ export function AddProjectRepositoryScreen(props: {
       },
     });
     if (AsyncResult.isFailure(result)) {
-      setError(errorMessage(Cause.squash(result.cause)));
+      setError(errorMessage(Cause.squash<unknown>(result.cause)));
     } else {
       const repository = result.value;
       navigation.dispatch(
@@ -1157,9 +1211,18 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
   );
 }
 
-export function AddProjectLocalFolderScreen(props: { readonly environmentId?: string | string[] }) {
+export function AddProjectLocalFolderScreen(props: {
+  readonly environmentId?: string | string[];
+  readonly workspaceRoot?: string;
+  readonly resumeSessionId?: string;
+  readonly resumeProviderInstanceId?: string;
+}) {
   const environment = useEnvironmentFromParam(props.environmentId);
-  const createProject = useCreateProject(environment);
+  const resume =
+    props.resumeSessionId && props.resumeProviderInstanceId
+      ? { sessionId: props.resumeSessionId, providerInstanceId: props.resumeProviderInstanceId }
+      : undefined;
+  const createProject = useCreateProject(environment, resume);
   const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } =
     useBrowsePathInput(environment);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1169,7 +1232,7 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
     if (!environment || isBrowseNavigating || isSubmitting) return;
     setError(null);
     const resolved = resolveAddProjectPath({
-      rawPath: pathInput,
+      rawPath: resume && props.workspaceRoot ? props.workspaceRoot : pathInput,
       currentProjectCwd: null,
       platform: environment.platform,
     });
@@ -1180,34 +1243,50 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
 
     setIsSubmitting(true);
     const result = await createProject(resolved.path);
-    if (result && AsyncResult.isFailure(result)) {
-      setError(errorMessage(Cause.squash(result.cause)));
+    if (result?._tag === "Failure") {
+      setError(errorMessage(Cause.squash<unknown>(result.cause)));
     }
     setIsSubmitting(false);
-  }, [createProject, environment, isBrowseNavigating, isSubmitting, pathInput]);
+  }, [
+    createProject,
+    environment,
+    isBrowseNavigating,
+    isSubmitting,
+    pathInput,
+    props.workspaceRoot,
+    resume,
+  ]);
 
   return (
-    <AddProjectShell title="Local folder">
+    <AddProjectShell title={resume ? "Import project and resume" : "Local folder"}>
       {error ? <ErrorBanner message={error} /> : null}
       {environment ? (
         <>
-          <ProjectPathInput
-            value={pathInput}
-            onChangeText={setPathInput}
-            onSubmit={() => void submitPath()}
-          />
+          {resume ? (
+            <Text className="text-foreground-muted">
+              {environment.label} · {props.workspaceRoot}
+            </Text>
+          ) : (
+            <ProjectPathInput
+              value={pathInput}
+              onChangeText={setPathInput}
+              onSubmit={() => void submitPath()}
+            />
+          )}
           <PrimaryActionButton
-            label="Add project"
+            label={resume ? "Import project and resume" : "Add project"}
             disabled={isBrowseNavigating || isSubmitting}
             onPress={() => void submitPath()}
             loading={isSubmitting}
           />
-          <FolderBrowser
-            environment={environment}
-            navigateToBrowsePath={navigateToBrowsePath}
-            pathInput={pathInput}
-            setPathInput={setPathInput}
-          />
+          {!resume ? (
+            <FolderBrowser
+              environment={environment}
+              navigateToBrowsePath={navigateToBrowsePath}
+              pathInput={pathInput}
+              setPathInput={setPathInput}
+            />
+          ) : null}
         </>
       ) : (
         <EmptyEnvironmentState />
@@ -1312,8 +1391,8 @@ export function AddProjectDestinationScreen(props: {
       setError(errorMessage(Cause.squash(cloneResult.cause)));
     } else {
       const createResult = await createProject(cloneResult.value.cwd);
-      if (createResult && AsyncResult.isFailure(createResult)) {
-        setError(errorMessage(Cause.squash(createResult.cause)));
+      if (createResult?._tag === "Failure") {
+        setError(errorMessage(Cause.squash<unknown>(createResult.cause)));
       }
     }
     setIsSubmitting(false);

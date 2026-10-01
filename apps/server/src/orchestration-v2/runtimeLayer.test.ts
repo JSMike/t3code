@@ -1,3 +1,7 @@
+import * as AgentSessionImporter from "../project/AgentSessionImporter.ts";
+import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
+import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
+import * as IdAllocator from "./IdAllocator.ts";
 import { limitRecoveryCommand } from "./UsageLimitRecoveryWorker.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -4652,4 +4656,118 @@ it.layer(TestLayer)("usage-limit recovery", (it) => {
       }
     }),
   );
+});
+
+it.effect("continues an imported CLI session without replaying its history as a handoff", () => {
+  const projectId = ProjectId.make("resume-cli-project");
+  const sessionId = "01a0d940-6480-7831-b253-569ae0ea6be1";
+  const cwd = "/external/worktree";
+  const createdAt = "2026-09-01T10:00:00.000Z";
+  const layer = AgentSessionImporter.layer.pipe(
+    Layer.provideMerge(TestLayer),
+    Layer.provide(IdAllocator.layer),
+    Layer.provide(ProviderSessionRuntime.layer.pipe(Layer.provide(SqlitePersistenceMemory))),
+    Layer.provide(
+      Layer.mock(ProjectService.ProjectService)({
+        getById: () =>
+          Effect.succeed(
+            Option.some({
+              id: projectId,
+              title: "CLI project",
+              workspaceRoot: "/project",
+              scripts: [],
+              defaultModelSelection: modelSelection,
+              createdAt,
+              updatedAt: createdAt,
+              deletedAt: null,
+            }),
+          ),
+      }),
+    ),
+    Layer.provide(
+      Layer.mock(AgentSessionScanner.AgentSessionScanner)({
+        readSession: () =>
+          Effect.succeed({
+            session: {
+              provider: "codex",
+              providerInstanceId: modelSelection.instanceId,
+              sessionId,
+              title: "CLI work",
+              cwd,
+              branch: "feature/cli",
+              updatedAt: createdAt,
+            },
+            isProjectRoot: false,
+            source: {
+              provider: "codex",
+              providerInstanceId: modelSelection.instanceId,
+              providerSessionId: sessionId,
+              filePath: "/codex/session.jsonl",
+              size: 100,
+              mtimeMs: 1,
+              device: 1,
+              inode: 1,
+              birthtimeMs: 1,
+            },
+            thread: {
+              source: "codex",
+              providerInstanceId: modelSelection.instanceId,
+              providerSessionId: sessionId,
+              title: "CLI work",
+              model: modelSelection.model,
+              createdAt,
+              updatedAt: createdAt,
+              messages: [
+                { role: "user", text: "Work begun in the CLI", createdAt },
+                { role: "assistant", text: "Work in progress", createdAt },
+              ],
+            },
+          }),
+      }),
+    ),
+  );
+  return Effect.gen(function* () {
+    yield* seedProject({
+      projectId,
+      title: "CLI project",
+      workspaceRoot: "/project",
+      defaultModelSelection: modelSelection,
+      createdAt,
+    });
+    const importer = yield* AgentSessionImporter.AgentSessionImporter;
+    const { threadId } = yield* importer.attachAgentSession({
+      projectId,
+      providerInstanceId: modelSelection.instanceId,
+      sessionId,
+    });
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const before = yield* orchestrator.getThreadProjection(threadId);
+    assert.lengthOf(before.runs, 0);
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      createdBy: "user",
+      creationSource: "web",
+      commandId: CommandId.make("resume-cli-message"),
+      threadId,
+      messageId: MessageId.make("resume-cli-message"),
+      text: "Continue here",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+    });
+    const after = yield* orchestrator.getThreadProjection(threadId);
+    assert.lengthOf(after.runs, 1);
+    assert.lengthOf(after.providerThreads, 1);
+    assert.strictEqual(after.runs[0]?.providerThreadId, before.thread.activeProviderThreadId);
+    assert.deepEqual(after.providerThreads[0]?.nativeThreadRef, {
+      driver: ProviderDriverKind.make("codex"),
+      nativeId: sessionId,
+      strength: "strong",
+    });
+    assert.strictEqual(after.thread.worktreePath, cwd);
+    assert.lengthOf(after.contextHandoffs, 0);
+    assert.deepEqual(
+      after.messages.map((message) => message.text),
+      ["Work begun in the CLI", "Work in progress", "Continue here"],
+    );
+  }).pipe(Effect.provide(layer));
 });

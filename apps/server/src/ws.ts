@@ -3137,6 +3137,24 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.agentSessionsScan, agentSessionScanner.scan, {
             "rpc.aggregate": "workspace",
           }),
+        [WS_METHODS.agentSessionsList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.agentSessionsList,
+            agentSessionImporter.listAgentSessions(input),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.agentSessionsLookup]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.agentSessionsLookup,
+            agentSessionImporter.lookupAgentSession(input),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.agentSessionsAttach]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.agentSessionsAttach,
+            agentSessionImporter.attachAgentSession(input),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.agentSessionsImport]: (input) =>
           observeRpcEffect(
             WS_METHODS.agentSessionsImport,

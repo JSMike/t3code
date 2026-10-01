@@ -23,7 +23,6 @@ import type {
   OrchestrationV2ThreadShell,
   OrchestrationV2ThreadProjection,
   OrchestrationV2TurnItem,
-  ProviderInstanceId,
   ProviderSessionId,
   ProviderThreadId,
   ProviderTurnId,
@@ -52,6 +51,8 @@ import {
   RunId,
   CheckpointScopeId,
   ThreadId,
+  ProjectId,
+  ProviderInstanceId,
   TurnItemId,
   NodeId,
 } from "@t3tools/contracts";
@@ -309,7 +310,22 @@ export interface ProjectionTimelinePage {
   readonly hasMore: boolean;
 }
 
+/** Native sessions held by live or archived threads, without loading their histories. */
+const ProviderSessionClaim = Schema.Struct({
+  threadId: ThreadId,
+  projectId: ProjectId,
+  provider: Schema.String,
+  providerInstanceId: ProviderInstanceId,
+  sessionId: Schema.String,
+  archived: Schema.Boolean,
+});
+const decodeProviderSessionClaims = Schema.decodeUnknownEffect(Schema.Array(ProviderSessionClaim));
+
 export interface ProjectionStoreV2Shape {
+  readonly getProviderSessionClaims: () => Effect.Effect<
+    ReadonlyArray<typeof ProviderSessionClaim.Type>,
+    ProjectionStoreV2Error
+  >;
   readonly getThreadAttachmentIds: (
     threadId: ThreadId,
   ) => Effect.Effect<ReadonlyArray<string>, ProjectionStoreV2Error>;
@@ -5185,6 +5201,49 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         )
         .pipe(Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })));
 
+    const getProviderSessionClaims: ProjectionStoreV2Shape["getProviderSessionClaims"] = () =>
+      Effect.gen(function* () {
+        // Migrated V1 threads keep native IDs in their runtime rows, even though
+        // their V2 provider threads are created only when another turn starts.
+        const rows = yield* sql`
+          WITH legacy_sessions AS (
+            SELECT r.thread_id, r.provider_name,
+              COALESCE(r.provider_instance_id, r.provider_name) AS provider_instance_id,
+              json_extract(
+                CASE WHEN json_valid(r.resume_cursor_json) THEN r.resume_cursor_json ELSE '{}' END,
+                CASE WHEN r.provider_name = 'claudeAgent' THEN '$.resume' ELSE '$.threadId' END
+              ) AS session_id
+            FROM provider_session_runtime r
+            WHERE r.provider_name IN ('codex', 'claudeAgent')
+          )
+          SELECT t.thread_id AS "threadId",
+            json_extract(t.payload_json, '$.projectId') AS "projectId",
+            json_extract(p.payload_json, '$.driver') AS provider,
+            json_extract(p.payload_json, '$.providerInstanceId') AS "providerInstanceId",
+            json_extract(p.payload_json, '$.nativeThreadRef.nativeId') AS "sessionId",
+            json_extract(t.payload_json, '$.archivedAt') IS NOT NULL AS archived
+          FROM orchestration_v2_projection_provider_threads p
+          JOIN orchestration_v2_projection_threads t ON t.thread_id = p.thread_id
+          WHERE t.deleted_at IS NULL
+            AND json_extract(p.payload_json, '$.nativeThreadRef.nativeId') IS NOT NULL
+          UNION
+          SELECT t.thread_id AS "threadId",
+            json_extract(t.payload_json, '$.projectId') AS "projectId",
+            r.provider_name AS provider,
+            r.provider_instance_id AS "providerInstanceId",
+            r.session_id AS "sessionId",
+            json_extract(t.payload_json, '$.archivedAt') IS NOT NULL AS archived
+          FROM legacy_sessions r
+          JOIN orchestration_v2_projection_threads t ON t.thread_id = r.thread_id
+          WHERE t.deleted_at IS NULL
+            AND json_extract(t.payload_json, '$.historyOrigin') = 'v1_import'
+            AND typeof(r.session_id) = 'text' AND length(r.session_id) > 0
+        `;
+        return yield* decodeProviderSessionClaims(
+          rows.map((row) => ({ ...row, archived: row.archived === 1 })),
+        );
+      }).pipe(Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })));
+
     const getThreadsWithPullRequests: ProjectionStoreV2Shape["getThreadsWithPullRequests"] = (
       threadId,
     ) =>
@@ -5507,6 +5566,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadShell,
       getThread,
       getSettlementCandidates,
+      getProviderSessionClaims,
       getThreadsWithPullRequests,
       getThreadProjection,
       getTurnStartContext,
@@ -5646,6 +5706,29 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 left.id.localeCompare(right.id),
             );
         }),
+      getProviderSessionClaims: () =>
+        Ref.get(replayState).pipe(
+          Effect.map((state) =>
+            [...state.projections.values()].flatMap(({ thread, providerThreads }) =>
+              thread.deletedAt !== null
+                ? []
+                : providerThreads.flatMap((providerThread) =>
+                    providerThread.nativeThreadRef?.nativeId == null
+                      ? []
+                      : [
+                          {
+                            threadId: thread.id,
+                            projectId: thread.projectId,
+                            provider: providerThread.driver,
+                            providerInstanceId: providerThread.providerInstanceId,
+                            sessionId: providerThread.nativeThreadRef.nativeId,
+                            archived: thread.archivedAt !== null,
+                          },
+                        ],
+                  ),
+            ),
+          ),
+        ),
       getThreadsWithPullRequests: (threadId) =>
         Ref.get(replayState).pipe(
           Effect.map((state) =>

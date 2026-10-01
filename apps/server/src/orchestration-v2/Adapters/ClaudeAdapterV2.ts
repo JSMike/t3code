@@ -6932,8 +6932,14 @@ export function makeClaudeAdapterV2(
           // it; reopening with a fixed session id makes the CLI fail fast with
           // "Session ID ... is already in use".
           const hasPersistedProviderTurn = turnInput.providerTurnOrdinal > 1;
+          // Imports have existing CLI history but no T3 provider turns. A new
+          // session also has a preallocated native ID, so the ID alone is insufficient.
+          const isImportedNativeThread = turnInput.providerThread.nativeThreadOrigin === "imported";
           const shouldResume =
-            resumeSessionAt !== undefined || openedWithResume || hasPersistedProviderTurn;
+            resumeSessionAt !== undefined ||
+            openedWithResume ||
+            hasPersistedProviderTurn ||
+            isImportedNativeThread;
           const queryOptions = makeClaudeQueryOptions({
             modelSelection: turnInput.modelSelection,
             nativeThreadId,

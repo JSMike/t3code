@@ -1507,6 +1507,7 @@ function releaseChatTimelineAnchor<T extends { readonly messageId: MessageId | n
   return current.messageId === null ? current : { ...current, messageId: null };
 }
 
+/** Render draft or persisted thread state, coordinating the composer with the owning environment. */
 export default function ChatView(props: ChatViewProps) {
   const {
     environmentId,
@@ -4149,6 +4150,7 @@ export default function ChatView(props: ChatViewProps) {
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
+    hostsResumePicker: routeKind === "draft",
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
@@ -4157,6 +4159,7 @@ export default function ChatView(props: ChatViewProps) {
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
+    hostsResumePicker: routeKind === "draft",
   });
   const mountComposerModelStrip =
     routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
