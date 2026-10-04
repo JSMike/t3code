@@ -143,6 +143,25 @@ export const AgentSessionListResult = Schema.Struct({
 });
 export type AgentSessionListResult = typeof AgentSessionListResult.Type;
 
+/** Exact native identity lookup on one environment, before a project is selected. */
+export const AgentSessionLookupInput = Schema.Struct({
+  sessionId: TrimmedNonEmptyString,
+  provider: Schema.optional(AgentSessionSource),
+});
+export type AgentSessionLookupInput = typeof AgentSessionLookupInput.Type;
+
+export const AgentSessionLookupMatch = Schema.Struct({
+  session: ResumableAgentSession,
+  project: AgentSessionProjectCandidate,
+});
+export type AgentSessionLookupMatch = typeof AgentSessionLookupMatch.Type;
+
+export const AgentSessionLookupResult = Schema.Struct({
+  matches: Schema.Array(AgentSessionLookupMatch),
+  truncated: Schema.Boolean,
+});
+export type AgentSessionLookupResult = typeof AgentSessionLookupResult.Type;
+
 export const AgentSessionAttachInput = Schema.Struct({
   projectId: ProjectId,
   providerInstanceId: ProviderInstanceId,

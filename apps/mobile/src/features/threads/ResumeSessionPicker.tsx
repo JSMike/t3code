@@ -1,5 +1,4 @@
 import {
-  createAgentSessionResumeAtoms,
   filterResumableSessions,
   resumableSessionLocation,
 } from "@t3tools/client-runtime/state/agentSessions";
@@ -18,13 +17,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { ComposerInlineControl } from "../../components/ComposerToolbar";
 import { ProviderIcon } from "../../components/ProviderIcon";
-import { connectionAtomRuntime } from "../../connection/runtime";
+import {
+  agentSessionList as sessionList,
+  agentSessionAttach as sessionAttach,
+} from "../../state/agentSessions";
 import { relativeTime } from "../../lib/time";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
-
-const { list: sessionList, attach: sessionAttach } =
-  createAgentSessionResumeAtoms(connectionAtomRuntime);
 
 /** Browse external sessions on the selected environment and return the attached thread to navigation. */
 export function ResumeSessionPicker(props: {

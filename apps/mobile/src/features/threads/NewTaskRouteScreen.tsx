@@ -1,3 +1,5 @@
+import { parseAgentSessionReference } from "@t3tools/client-runtime/state/agentSessions";
+import { SessionReferenceLookup } from "./SessionReferenceLookup";
 import { MaterialListRow } from "../../components/MaterialListRow";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import {
@@ -119,7 +121,7 @@ function NewTaskHeader(props: {
       search={{
         value: props.searchText,
         onChangeText: props.onSearchTextChange,
-        placeholder: "Search projects",
+        placeholder: "Search projects or paste a resume command",
       }}
     />
   );
@@ -147,6 +149,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
     : null;
   const screenTitle = incomingShare ? "Start a task" : "Choose project";
   const projectEmptyState = deriveProjectEmptyState(catalogState);
+  const sessionReference = incomingShare ? null : parseAgentSessionReference(searchText);
   const visibleScopes = filterProjectScopes(projectScopes, searchText);
   const resumedDestinationKeyRef = useRef<string | null>(null);
   const reservedDestinationProject = incomingShare?.destination
@@ -246,7 +249,14 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               : {}),
           }}
         >
-          {projectScopes.length === 0 ? (
+          {sessionReference ? (
+            <SessionReferenceLookup
+              key={`${sessionReference.provider ?? "any"}:${sessionReference.sessionId}`}
+              input={sessionReference}
+              environmentId={selectedEnvironmentId}
+            />
+          ) : null}
+          {sessionReference ? null : projectScopes.length === 0 ? (
             <View
               collapsable={false}
               className={cn(

@@ -28,6 +28,7 @@ import type { RpcSession } from "../rpc/session.ts";
 import {
   createAgentSessionResumeAtoms,
   filterResumableSessions,
+  parseAgentSessionReference,
   resumableSessionLocation,
 } from "./agentSessions.ts";
 
@@ -154,5 +155,36 @@ describe("resumableSessionLocation", () => {
   it("prefers the branch and falls back to the directory name", () => {
     expect(resumableSessionLocation(session({ branch: "main" }))).toBe("main");
     expect(resumableSessionLocation(session({ cwd: "/repo/app/" }))).toBe("app");
+  });
+});
+
+describe("parseAgentSessionReference", () => {
+  const id = "5c119ee3-f063-4999-87ce-a062d004c37c";
+  it("infers providers from commands and searches all providers for a bare UUID", () => {
+    expect(parseAgentSessionReference(`  ${id}  `)).toEqual({ sessionId: id });
+    expect(parseAgentSessionReference(`codex resume ${id}`)).toEqual({
+      provider: "codex",
+      sessionId: id,
+    });
+    expect(parseAgentSessionReference(`claude --resume ${id}`)).toEqual({
+      provider: "claudeAgent",
+      sessionId: id,
+    });
+    expect(parseAgentSessionReference("codex resume named-session")).toEqual({
+      provider: "codex",
+      sessionId: "named-session",
+    });
+  });
+  it.each([
+    "project name",
+    "codex resume",
+    "claude --resume",
+    "codex resume $(cmd)",
+    `codex resume ${id}; echo x`,
+    `codex resume ${id} --extra`,
+    "../session",
+    "1234",
+  ])("leaves non-references as ordinary search text: %s", (text) => {
+    expect(parseAgentSessionReference(text)).toBeNull();
   });
 });

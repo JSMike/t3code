@@ -30,6 +30,9 @@ import {
   type ProviderInstanceConfig,
   type ResumableAgentSession,
   type AgentSessionListResult,
+  type AgentSessionLookupInput,
+  type AgentSessionLookupResult,
+  type AgentSessionLookupMatch,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -218,6 +221,9 @@ export class AgentSessionScanner extends Context.Service<
       workspaceRoot: string,
       excludedSessions?: ReadonlySet<string>,
     ) => Effect.Effect<AgentSessionListResult, AgentSessionScanError>;
+    readonly lookupSession: (
+      input: AgentSessionLookupInput,
+    ) => Effect.Effect<AgentSessionLookupResult, AgentSessionScanError>;
     readonly readSession: (
       workspaceRoot: string,
       providerInstanceId: ProviderInstanceId,
@@ -1577,6 +1583,7 @@ export const make = Effect.gen(function* () {
           .pipe(Effect.orElseSucceed(() => ""));
         return {
           root,
+          commonDir,
           common: yield* directoryIdentity(commonDir),
           branch: /^ref: refs\/heads\/(.+)$/.exec(head.trim())?.[1] ?? null,
         };
@@ -1633,12 +1640,16 @@ export const make = Effect.gen(function* () {
    * Keep transcript paths internal so attachment can re-read the selected history.
    */
   const discoverSessions = Effect.fn("AgentSessionScanner.discoverSessions")(function* (
-    workspaceRoot: string,
+    workspaceRoot: string | null,
     excludedSessions: ReadonlySet<string> = new Set(),
-    selectedSession?: { providerInstanceId: ProviderInstanceId; sessionId: string },
+    selectedSession?: {
+      providerInstanceId?: ProviderInstanceId;
+      sessionId: string;
+      provider?: AgentSessionSource | undefined;
+    },
   ) {
     const collected = yield* collectCandidates();
-    const project = yield* readProjectScope(workspaceRoot);
+    const project = workspaceRoot === null ? null : yield* readProjectScope(workspaceRoot);
     // Claude and Codex can both have run in one directory.
     const branchByCwd = new Map<string, string | null | undefined>();
     const eligible: Array<{
@@ -1647,8 +1658,12 @@ export const make = Effect.gen(function* () {
       branch: string | null;
     }> = [];
     for (const candidate of collected.candidates) {
-      if (selectedSession && candidate.providerInstanceId !== selectedSession.providerInstanceId)
+      if (
+        selectedSession?.providerInstanceId &&
+        candidate.providerInstanceId !== selectedSession.providerInstanceId
+      )
         continue;
+      if (selectedSession?.provider && candidate.source !== selectedSession.provider) continue;
       // Both providers name their transcript with the native session ID.
       // Selection must not be limited by the picker's recent-summary budget.
       const transcripts = selectedSession
@@ -1657,8 +1672,17 @@ export const make = Effect.gen(function* () {
           )
         : candidate.transcripts;
       if (transcripts.length === 0 || !path.isAbsolute(candidate.cwd)) continue;
+      if (project === null) {
+        const stats = yield* statOption(candidate.cwd);
+        if (Option.isNone(stats) || stats.value.type !== "Directory") continue;
+      }
       if (!branchByCwd.has(candidate.cwd))
-        branchByCwd.set(candidate.cwd, yield* matchProject(project, candidate.cwd));
+        branchByCwd.set(
+          candidate.cwd,
+          project === null
+            ? ((yield* checkoutIdentity(candidate.cwd))?.branch ?? null)
+            : yield* matchProject(project, candidate.cwd),
+        );
       const branch = branchByCwd.get(candidate.cwd);
       if (branch === undefined) continue;
       for (const transcript of transcripts) {
@@ -1766,7 +1790,7 @@ export const make = Effect.gen(function* () {
       truncated:
         collected.truncated ||
         incompletePreview ||
-        inspected < eligible.length ||
+        (!selectedSession && inspected < eligible.length) ||
         remainingBytes <= 0,
     };
   });
@@ -1789,17 +1813,16 @@ export const make = Effect.gen(function* () {
    * Classify root aliases by filesystem identity so the importer can preserve the
    * native cwd without marking it as a linked worktree.
    */
-  const readSession: AgentSessionScanner["Service"]["readSession"] = Effect.fn(
-    "AgentSessionScanner.readSession",
-  )(function* (workspaceRoot, providerInstanceId, sessionId) {
-    const { sessions } = yield* discoverSessions(workspaceRoot, new Set(), {
-      providerInstanceId,
-      sessionId,
-    });
+  const readDiscoveredSession = Effect.fn("AgentSessionScanner.readDiscoveredSession")(function* (
+    workspaceRoot: string | null,
+    sessionId: string,
+    sessions: ReadonlyArray<{ session: ResumableAgentSession; filePath: string }>,
+  ) {
     let failure = new AgentSessionResumeError({
       message: "This session is no longer available in this project. Refresh the session list.",
     });
     for (const selected of sessions) {
+      const providerInstanceId = selected.session.providerInstanceId;
       const stats = yield* statOption(selected.filePath);
       if (Option.isNone(stats) || stats.value.type !== "File") {
         failure = new AgentSessionResumeError({
@@ -1849,8 +1872,9 @@ export const make = Effect.gen(function* () {
       return {
         session: { ...selected.session, title: resumableSessionTitle(thread, snapshot.records) },
         isProjectRoot:
+          workspaceRoot !== null &&
           (yield* directoryIdentity(selected.session.cwd)) ===
-          (yield* directoryIdentity(workspaceRoot)),
+            (yield* directoryIdentity(workspaceRoot)),
         thread,
         source: {
           ...identity,
@@ -1863,7 +1887,91 @@ export const make = Effect.gen(function* () {
     return yield* failure;
   });
 
-  return AgentSessionScanner.of({ scan, recentThreads, listSessions, readSession });
+  const readSession: AgentSessionScanner["Service"]["readSession"] = Effect.fn(
+    "AgentSessionScanner.readSession",
+  )(function* (workspaceRoot, providerInstanceId, sessionId) {
+    const { sessions } = yield* discoverSessions(workspaceRoot, new Set(), {
+      providerInstanceId,
+      sessionId,
+    });
+    return yield* readDiscoveredSession(workspaceRoot, sessionId, sessions);
+  });
+
+  /** Find exact identities across configured homes; project ownership still uses filesystem identity. */
+  const lookupSession: AgentSessionScanner["Service"]["lookupSession"] = Effect.fn(
+    "AgentSessionScanner.lookupSession",
+  )(function* (input) {
+    const discovered = yield* discoverSessions(null, new Set(), input);
+    if (discovered.sessions.length === 0) return { matches: [], truncated: discovered.truncated };
+    const snapshot = yield* projectionSnapshotQuery
+      .getShellSnapshot()
+      .pipe(
+        Effect.mapError(
+          (cause) => new AgentSessionScanError({ operation: "read-projects", cause }),
+        ),
+      );
+    const projects = yield* Effect.forEach(
+      snapshot.projects,
+      Effect.fnUntraced(function* (project) {
+        return { project, scope: yield* readProjectScope(project.workspaceRoot) };
+      }),
+    );
+    // Prefer a precise cwd match, then the most specific containing project.
+    projects.sort((a, b) => b.scope.realPath.length - a.scope.realPath.length);
+    const groups = new Map<string, typeof discovered.sessions>();
+    for (const candidate of discovered.sessions) {
+      const key = agentSessionKey(
+        candidate.session.provider,
+        candidate.session.providerInstanceId,
+        input.sessionId,
+      );
+      groups.set(key, [...(groups.get(key) ?? []), candidate]);
+    }
+    const matches: Array<AgentSessionLookupMatch> = [];
+    let truncated = discovered.truncated;
+    for (const candidates of groups.values()) {
+      const selected = yield* readDiscoveredSession(null, input.sessionId, candidates).pipe(
+        Effect.option,
+      );
+      if (Option.isNone(selected)) {
+        truncated = true;
+        continue;
+      }
+      const session = selected.value.session;
+      const cwdIdentity = yield* directoryIdentity(session.cwd);
+      let owner = projects.find(({ scope }) => scope.identity === cwdIdentity)?.project;
+      if (!owner)
+        for (const entry of projects) {
+          if ((yield* matchProject(entry.scope, session.cwd)) !== undefined) {
+            owner = entry.project;
+            break;
+          }
+        }
+      const checkout = yield* checkoutIdentity(session.cwd);
+      const mainRoot =
+        checkout && path.basename(checkout.commonDir) === ".git"
+          ? path.dirname(checkout.commonDir)
+          : null;
+      // Offer the main checkout when discovering a linked worktree, while keeping
+      // the session's native cwd for attachment after project onboarding.
+      const workspaceRoot = owner?.workspaceRoot ?? mainRoot ?? checkout?.root ?? session.cwd;
+      matches.push({
+        session,
+        project: {
+          path: workspaceRoot,
+          title: owner?.title ?? (path.basename(workspaceRoot) || workspaceRoot),
+          ...(owner ? { projectId: owner.id } : {}),
+          alreadyImported: owner !== undefined,
+          sources: [session.provider],
+          threadCount: 1,
+          lastActiveAt: session.updatedAt,
+        },
+      });
+    }
+    return { matches, truncated };
+  });
+
+  return AgentSessionScanner.of({ scan, recentThreads, listSessions, readSession, lookupSession });
 });
 
 export const layer = Layer.effect(AgentSessionScanner, make);

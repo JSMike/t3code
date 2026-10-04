@@ -63,6 +63,7 @@ import {
   importRecentAgentThreads,
   attachAgentSession,
   listAgentSessions,
+  lookupAgentSession,
 } from "./AgentSessionImporter.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
 
@@ -213,6 +214,73 @@ const runImport = (input: {
   );
 
 it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
+  it.effect.each(["open", "archived", "unfinishedImport", "deleted"] as const)(
+    "global lookup handles %s session ownership",
+    (state) =>
+      Effect.gen(function* () {
+        const thread = makeProjectedThread({ source: "codex" });
+        const native = makeThread("codex");
+        const session = {
+          provider: native.source,
+          providerInstanceId: native.providerInstanceId,
+          sessionId: native.providerSessionId,
+          title: native.title,
+          cwd: WORKSPACE_ROOT,
+          branch: null,
+          updatedAt: native.updatedAt,
+        };
+        const match = {
+          session,
+          project: {
+            path: WORKSPACE_ROOT,
+            title: "Project",
+            projectId: PROJECT_ID,
+            sources: [native.source],
+            threadCount: 1,
+            lastActiveAt: null,
+            alreadyImported: true,
+          },
+        };
+        const result = yield* lookupAgentSession({ sessionId: native.providerSessionId }).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              Layer.mock(AgentSessionScanner.AgentSessionScanner)({
+                lookupSession: () => Effect.succeed({ matches: [match], truncated: false }),
+              }),
+              Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+                getProviderBoundThreads: () =>
+                  Effect.succeed(
+                    state === "deleted"
+                      ? []
+                      : [
+                          {
+                            threadId: thread.id,
+                            projectId: PROJECT_ID,
+                            archived: state === "archived",
+                            importedHistory: state === "open",
+                          },
+                        ],
+                  ),
+              }),
+              Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)({
+                listBindings: () =>
+                  Effect.succeed([
+                    {
+                      threadId: thread.id,
+                      provider: ProviderDriverKind.make("codex"),
+                      providerInstanceId: native.providerInstanceId,
+                      resumeCursor: { threadId: native.providerSessionId },
+                      lastSeenAt: native.updatedAt,
+                    },
+                  ]),
+              }),
+            ),
+          ),
+        );
+        expect(result.matches).toEqual(state === "open" || state === "archived" ? [] : [match]);
+      }),
+  );
+
   it.effect.each([false, true])(
     "only offers unfinished imports in their owning project (foreign=%s)",
     (foreign) =>
@@ -281,6 +349,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
         const scanner = AgentSessionScanner.AgentSessionScanner.of({
           listSessions: () => Effect.die("unused"),
           readSession: () => Effect.die("unused"),
+          lookupSession: () => Effect.die("unused"),
           scan: Effect.die("unused"),
           recentThreads: (workspaceRoot) => {
             scannedRoot = workspaceRoot;
@@ -375,6 +444,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
             AgentSessionScanner.AgentSessionScanner.of({
               listSessions: () => Effect.die("unused"),
               readSession: () => Effect.die("unused"),
+              lookupSession: () => Effect.die("unused"),
               scan: Effect.die("must not scan a changed project"),
               recentThreads,
             }),
@@ -401,6 +471,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
         const scanner = AgentSessionScanner.AgentSessionScanner.of({
           listSessions: () => Effect.die("unused"),
           readSession: () => Effect.die("unused"),
+          lookupSession: () => Effect.die("unused"),
           scan: Effect.die("unused"),
           recentThreads: () => Stream.succeed({ _tag: "Skipped" }),
         });
@@ -444,6 +515,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
         const scanner = AgentSessionScanner.AgentSessionScanner.of({
           listSessions: () => Effect.die("unused"),
           readSession: () => Effect.die("unused"),
+          lookupSession: () => Effect.die("unused"),
           scan: Effect.die("unused"),
           recentThreads: () => Stream.fromIterable([makeThreadOutcome(makeThread("codex"))]),
         });
@@ -526,6 +598,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
         const scanner = AgentSessionScanner.AgentSessionScanner.of({
           listSessions: () => Effect.die("unused"),
           readSession: () => Effect.die("unused"),
+          lookupSession: () => Effect.die("unused"),
           scan: Effect.die("unused"),
           recentThreads: () => Stream.fromIterable([makeThreadOutcome(makeThread("codex"))]),
         });
@@ -576,6 +649,7 @@ it.layer(NodeServices.layer)("AgentSessionImporter", (it) => {
         const scanner = AgentSessionScanner.AgentSessionScanner.of({
           listSessions: () => Effect.die("unused"),
           readSession: () => Effect.die("unused"),
+          lookupSession: () => Effect.die("unused"),
           scan: Effect.die("unused"),
           recentThreads: () =>
             Stream.fromIterable([
@@ -639,6 +713,7 @@ const integrationThread = {
 const integrationScanner = AgentSessionScanner.AgentSessionScanner.of({
   listSessions: () => Effect.die("unused"),
   readSession: () => Effect.die("unused"),
+  lookupSession: () => Effect.die("unused"),
   scan: Effect.die("unused"),
   recentThreads: () => Stream.fromIterable([makeThreadOutcome(integrationThread)]),
 });
@@ -1392,6 +1467,7 @@ it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
             AgentSessionScanner.AgentSessionScanner.of({
               listSessions: () => Effect.die("unused"),
               readSession: () => Effect.die("unused"),
+              lookupSession: () => Effect.die("unused"),
               scan: Effect.die("unused"),
               recentThreads: () => Stream.succeed(makeThreadOutcome(sourceThread)),
             }),
@@ -1414,6 +1490,7 @@ it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
       const scanner = AgentSessionScanner.AgentSessionScanner.of({
         listSessions: () => Effect.die("unused"),
         readSession: () => Effect.die("unused"),
+        lookupSession: () => Effect.die("unused"),
         scan: Effect.die("unused"),
         recentThreads: () =>
           Stream.succeed(
@@ -1510,6 +1587,7 @@ it.layer(integrationLayer)("AgentSessionImporter integration", (it) => {
       const scanner = AgentSessionScanner.AgentSessionScanner.of({
         listSessions: () => Effect.die("unused"),
         readSession: () => Effect.die("unused"),
+        lookupSession: () => Effect.die("unused"),
         scan: Effect.die("unused"),
         recentThreads: () =>
           Stream.succeed(

@@ -10,6 +10,7 @@ import {
   AgentSessionResumeError,
   type AgentSessionImportSource,
   type AgentSessionListInput,
+  type AgentSessionLookupInput,
   type AgentSessionAttachInput,
   AgentSessionScanError,
   importedAgentSessionThreadId,
@@ -467,4 +468,28 @@ export const attachAgentSession = Effect.fn("attachAgentSession")(function* (
     source: selected.source,
   }).pipe(Effect.mapError((cause) => new AgentSessionResumeError({ message: cause.message })));
   return { threadId };
+});
+
+/** Exact lookup keeps already-owned sessions out of the external import flow. */
+export const lookupAgentSession = Effect.fn("lookupAgentSession")(function* (
+  input: AgentSessionLookupInput,
+) {
+  const scanner = yield* AgentSessionScanner.AgentSessionScanner;
+  const result = yield* scanner.lookupSession(input);
+  const claims = yield* readSessionClaims.pipe(Effect.mapError(readProjectsFailed));
+  return {
+    ...result,
+    matches: result.matches.filter(
+      ({ session }) =>
+        !(
+          claims.get(
+            AgentSessionScanner.agentSessionKey(
+              session.provider,
+              session.providerInstanceId,
+              session.sessionId,
+            ),
+          ) ?? []
+        ).some((claim) => claim.state !== "unfinishedImport"),
+    ),
+  };
 });

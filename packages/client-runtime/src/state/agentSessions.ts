@@ -1,4 +1,8 @@
-import { WS_METHODS, type ResumableAgentSession } from "@t3tools/contracts";
+import {
+  WS_METHODS,
+  type ResumableAgentSession,
+  type AgentSessionLookupInput,
+} from "@t3tools/contracts";
 import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
 import * as Effect from "effect/Effect";
 import type { Atom } from "effect/unstable/reactivity";
@@ -23,6 +27,12 @@ export function createAgentSessionResumeAtoms<R, E>(
   });
   return {
     list,
+    lookup: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:agent-sessions:lookup",
+      tag: WS_METHODS.agentSessionsLookup,
+      staleTimeMs: 0,
+      idleTtlMs: 0,
+    }),
     attach: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:agent-sessions:attach",
       tag: WS_METHODS.agentSessionsAttach,
@@ -53,4 +63,16 @@ export function filterResumableSessions(
 /** The branch a session ran on, or its directory name outside Git. */
 export function resumableSessionLocation(session: ResumableAgentSession): string {
   return session.branch ?? fileBasename(session.cwd);
+}
+
+/** Recognize pasted commands without executing shell syntax; bare IDs must be UUIDs. */
+export function parseAgentSessionReference(value: string): AgentSessionLookupInput | null {
+  const text = value.trim();
+  const command = /^(codex\s+resume|claude\s+--resume)\s+([a-z0-9_-]{1,256})$/i.exec(text);
+  if (command)
+    return {
+      provider: command[1]!.toLowerCase().startsWith("codex") ? "codex" : "claudeAgent",
+      sessionId: command[2]!,
+    };
+  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(text) ? { sessionId: text } : null;
 }

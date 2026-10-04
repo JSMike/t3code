@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
@@ -86,7 +86,7 @@ vi.mock("../ui/toast", () => ({
   toastManager: { add: mocks.toast, close: vi.fn(), update: vi.fn() },
 }));
 
-import { WelcomeWizard } from "./WelcomeWizard";
+import { WelcomeWizard, ImportStep } from "./WelcomeWizard";
 
 let root: Root;
 let container: HTMLDivElement;
@@ -210,5 +210,66 @@ it("keeps setup open when saving completion fails and preserves the import warni
       type: "warning",
       description: "Imported 28 threads. 1 thread could not be imported.",
     }),
+  );
+});
+
+it("onboards a targeted session's project without importing unrelated histories", async () => {
+  const onDone = vi.fn(async () => true);
+  const scans = [
+    {
+      environmentId: EnvironmentId.make("test-env"),
+      data: {
+        scannedAt: "2026-09-30T00:00:00Z",
+        candidates: [
+          {
+            path: "/project",
+            title: "project",
+            sources: ["codex" as const],
+            threadCount: 1,
+            lastActiveAt: null,
+            alreadyImported: false,
+          },
+        ],
+      },
+      isPending: false,
+      error: null,
+      refresh: vi.fn(),
+    },
+  ];
+  mocks.projects = [];
+  mocks.createProject.mockImplementation(async ({ input }) => {
+    mocks.projects = [
+      { id: input.projectId, environmentId: "test-env", workspaceRoot: "/project" },
+    ];
+    return { _tag: "Success", value: { sequence: 1 } };
+  });
+  function TargetedImport() {
+    const [busy, setBusy] = useState(false);
+    return (
+      <ImportStep
+        scans={scans}
+        resumeOnly
+        isImporting={busy}
+        setIsImporting={setBusy}
+        onDone={onDone}
+      />
+    );
+  }
+  await act(async () => root.render(<TargetedImport />));
+  await click("Import project and resume");
+  expect(mocks.createProject).toHaveBeenCalledWith(
+    expect.objectContaining({
+      environmentId: "test-env",
+      input: expect.objectContaining({
+        workspaceRoot: "/project",
+        createWorkspaceRootIfMissing: false,
+      }),
+    }),
+  );
+  expect(mocks.importThreads).not.toHaveBeenCalled();
+  expect(onDone).toHaveBeenCalledWith(
+    expect.objectContaining({ environmentId: "test-env", projectId: mocks.projects[0]!.id }),
+    "",
+    0,
   );
 });

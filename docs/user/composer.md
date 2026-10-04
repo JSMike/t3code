@@ -20,6 +20,12 @@ linked worktrees on the selected computer, newest first. Search by description,
 branch, or session ID; you can also paste a `codex resume` or `claude --resume`
 command. Use **Refresh** to find sessions started since opening the list.
 
+To find a session before choosing a project, paste its ID or resume command into
+**New thread in…** (the project chooser on mobile) and choose **Find session**.
+T3 searches the selected computer first. If it finds no match, you can search
+other connected computers. A new project goes through project import before the
+selected session opens; its files and provider stay on the computer where it ran.
+
 Selecting a session opens its conversation in T3 Code with its original provider
 and working directory. Your next message continues that session. Sessions already
 represented in T3 Code are excluded. The original checkout and session files must

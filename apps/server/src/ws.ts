@@ -150,6 +150,7 @@ import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import {
   importRecentAgentThreads,
   listAgentSessions,
+  lookupAgentSession,
   attachAgentSession,
 } from "./project/AgentSessionImporter.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -3189,6 +3190,12 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.agentSessionsScan, agentSessionScanner.scan, {
             "rpc.aggregate": "workspace",
           }),
+        [WS_METHODS.agentSessionsLookup]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.agentSessionsLookup,
+            lookupAgentSession(input).pipe(Effect.provideContext(agentSessionContext)),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.agentSessionsList]: (input) =>
           observeRpcEffect(
             WS_METHODS.agentSessionsList,

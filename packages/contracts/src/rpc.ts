@@ -49,6 +49,8 @@ import {
   AgentSessionImportProjectChangedError,
   AgentSessionImportProjectNotFoundError,
   AgentSessionImportResult,
+  AgentSessionLookupInput,
+  AgentSessionLookupResult,
   AgentSessionScanInput,
   AgentSessionScanResult,
   AgentSessionScanError,
@@ -304,6 +306,7 @@ export const WS_METHODS = {
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
+  agentSessionsLookup: "agentSessions.lookup",
   agentSessionsScan: "agentSessions.scan",
   agentSessionsImport: "agentSessions.import",
   agentSessionsList: "agentSessions.list",
@@ -1009,6 +1012,12 @@ const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   error: Schema.Union([FilesystemBrowseError, EnvironmentAuthorizationError]),
 });
 
+const WsAgentSessionsLookupRpc = Rpc.make(WS_METHODS.agentSessionsLookup, {
+  payload: AgentSessionLookupInput,
+  success: AgentSessionLookupResult,
+  error: Schema.Union([AgentSessionScanError, EnvironmentAuthorizationError]),
+});
+
 const WsAgentSessionsScanRpc = Rpc.make(WS_METHODS.agentSessionsScan, {
   payload: AgentSessionScanInput,
   success: AgentSessionScanResult,
@@ -1539,6 +1548,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
+  WsAgentSessionsLookupRpc,
   WsAgentSessionsScanRpc,
   WsAgentSessionsImportRpc,
   WsAgentSessionsListRpc,

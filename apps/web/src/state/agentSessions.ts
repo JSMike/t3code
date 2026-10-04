@@ -25,5 +25,8 @@ export const agentSessionImport = createEnvironmentRpcCommand(connectionAtomRunt
   tag: WS_METHODS.agentSessionsImport,
 });
 
-export const { list: agentSessionList, attach: agentSessionAttach } =
-  createAgentSessionResumeAtoms(connectionAtomRuntime);
+export const {
+  list: agentSessionList,
+  attach: agentSessionAttach,
+  lookup: agentSessionLookup,
+} = createAgentSessionResumeAtoms(connectionAtomRuntime);
