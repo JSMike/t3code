@@ -41,6 +41,25 @@ const linuxPlan = {
 };
 const linuxRenderOptions = { environmentPath: "/usr/local/bin:/usr/bin:/bin" };
 
+it.each(["\n", "\r", "\t", "\0", "\u007f", "\u0085", "\u2028", "\u2029"])(
+  "omits WSL identities containing the control or line separator %j",
+  (separator) => {
+    const withoutDistro = BootService.renderBootServiceUnit(linuxPlan, linuxRenderOptions);
+    expect(
+      BootService.renderBootServiceUnit(linuxPlan, {
+        ...linuxRenderOptions,
+        wslDistroName: `Ubuntu${separator}RestartSec=999`,
+      }),
+    ).toBe(withoutDistro);
+    expect(
+      BootService.renderBootServiceUnit(linuxPlan, {
+        ...linuxRenderOptions,
+        wslDistroName: `Ubuntu${separator}`,
+      }),
+    ).toBe(withoutDistro);
+  },
+);
+
 it("runs the pinned runtime's own executable as the systemd launcher", () => {
   const unit = BootService.renderBootServiceUnit(linuxPlan, linuxRenderOptions);
 
@@ -265,6 +284,37 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
 });
 
 it.layer(NodeServices.layer)("boot service install", (it) => {
+  it.effect("omits an installer WSL identity containing unit directives", () =>
+    Effect.gen(function* () {
+      const { service, fs } = yield* makeHarness("linux", "/usr/bin:/bin", {
+        WSL_DISTRO_NAME: "Ubuntu\nRestartSec=999\n#",
+      });
+      const plan = yield* service.install();
+      const unit = yield* fs.readFileString(plan.unitPath);
+
+      expect(unit).not.toContain("WSL_DISTRO_NAME");
+      expect(unit).not.toContain("RestartSec=999");
+      expect((yield* service.status).current).toBe(true);
+    }),
+  );
+
+  it.effect("repairs a saved WSL identity containing control characters from an SSH shell", () =>
+    Effect.gen(function* () {
+      const { service, makeService, fs } = yield* makeHarness("linux", "/usr/bin:/bin", {
+        WSL_DISTRO_NAME: "Ubuntu-24.04",
+      });
+      const plan = yield* service.install();
+      const unit = yield* fs.readFileString(plan.unitPath);
+      yield* fs.writeFileString(plan.unitPath, unit.replace("Ubuntu-24.04", "Ubuntu\t24.04"));
+
+      const sshService = yield* makeService("/usr/bin:/bin", undefined, undefined, {});
+      expect((yield* sshService.status).current).toBe(false);
+      yield* sshService.install();
+      expect(yield* fs.readFileString(plan.unitPath)).not.toContain("WSL_DISTRO_NAME");
+      expect((yield* sshService.status).current).toBe(true);
+    }),
+  );
+
   it.effect("preserves Windows editor paths and the WSL distro in the systemd service", () =>
     Effect.gen(function* () {
       const windowsBin = '/mnt/d/Users/100% "Dev"/Microsoft VS Code/bin';

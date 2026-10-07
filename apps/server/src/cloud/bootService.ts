@@ -51,6 +51,10 @@ const BOOT_SERVICE_UNIT_ENV = "T3_BOOT_SERVICE_UNIT";
 /** File in the logs dir that receives the service's stdout and stderr. `t3 triage` points agents at it. */
 export const BOOT_SERVICE_LOG_FILE = "boot-service.log";
 
+const isSafeWslDistroName = Schema.is(
+  Schema.String.check(Schema.makeFilter((value) => !/[\p{Cc}\u2028\u2029]/u.test(value))),
+);
+
 /** systemd expands `%` specifiers, including in unquoted append-log paths. */
 function escapeSystemdSpecifiers(value: string): string {
   return value.replaceAll("%", "%%");
@@ -109,6 +113,11 @@ export function renderBootServiceUnit(
   plan: BootServicePlan,
   options: { readonly environmentPath: string; readonly wslDistroName?: string },
 ): string {
+  // Both installer and saved values reach this renderer. Omit invalid identities
+  // instead of allowing control characters to become systemd unit syntax.
+  const wslDistroName = isSafeWslDistroName(options.wslDistroName)
+    ? options.wslDistroName
+    : undefined;
   // The user manager has no reliable network-online target; server networking retries itself.
   return [
     "[Unit]",
@@ -122,8 +131,8 @@ export function renderBootServiceUnit(
     `Environment=${SERVICE_PATH_ENV}=${quoteSystemdValue(options.environmentPath)}`,
     // Windows editor launchers need the distro identity. WSL_INTEROP points
     // to a session socket and must not be persisted across service restarts.
-    ...(options.wslDistroName
-      ? [`Environment=${SERVICE_WSL_DISTRO_ENV}=${quoteSystemdValue(options.wslDistroName)}`]
+    ...(wslDistroName
+      ? [`Environment=${SERVICE_WSL_DISTRO_ENV}=${quoteSystemdValue(wslDistroName)}`]
       : []),
     `Environment=T3CODE_HOME=${quoteSystemdValue(plan.baseDir)}`,
     `Environment=${BOOT_SERVICE_UNIT_ENV}=${BOOT_SERVICE_UNIT_FILE}`,
