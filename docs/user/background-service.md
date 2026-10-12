@@ -58,9 +58,12 @@ separately. Signing out of T3 Connect does not stop or uninstall the service.
 
 ## Troubleshooting
 
-The Linux service remembers tool paths from the shell where you install it
-and adds them after the paths supplied by the service manager. Updates and
-repairs retain those paths and the WSL distro, including when run over SSH.
+On Linux, `t3 service install` records the installing shell's `PATH` and, in
+WSL, `WSL_DISTRO_NAME`. At startup, the service launcher appends the saved paths
+to the `PATH` supplied by systemd and uses the saved distro name if it is missing
+from the service environment. Updates and repairs carry these values forward,
+including when run over SSH, and remove saved paths that no longer exist.
+
 If an editor or provider works in your terminal but the service cannot find it, run
 `t3 service install` again from that terminal. In WSL, use a terminal in the
 same distro where `code` can launch your Windows VS Code installation. This
