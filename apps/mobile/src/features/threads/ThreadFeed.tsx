@@ -204,7 +204,7 @@ import {
   resolveThreadFeedIsAtEnd,
   resolveThreadFeedLiveFollow,
   shouldCatchUpThreadFeedOnScrollEnd,
-  shouldMeasureThreadFeedContentSize,
+  shouldMeasureThreadFeedGeometry,
   resolveThreadFeedReflowAnchor,
   resolveThreadFeedReflowOffset,
   resolveThreadFeedReflowScroll,
@@ -2177,7 +2177,7 @@ export const ThreadFeed = memo(function ThreadFeed({
       endFollowEnabledRef.current = enabled;
       setEndFollowEnabled(enabled);
     }
-    // A newly mounted feed must also reset state retained by its parent.
+    // Explicit resets resynchronize the parent even when follow is already enabled.
     if (changed || reset) onEndFollowEnabledChange?.(enabled);
   };
   const transitionEndFollow = (event: ThreadFeedLiveFollowEvent) => {
@@ -2711,10 +2711,10 @@ export const ThreadFeed = memo(function ThreadFeed({
       userScrollSettleTimerRef.current = null;
     }
   };
-  const handleContentSizeChange = () => {
-    // Native content-size reports can precede the follow scroll or release settling.
+  const reportGeometryChange = (type: "content-size-change" | "layout") => {
+    // Geometry reports can precede the follow scroll or release settling.
     if (
-      !shouldMeasureThreadFeedContentSize(
+      !shouldMeasureThreadFeedGeometry(
         endFollowEnabledRef.current,
         userScrollSettleTimerRef.current !== null,
       )
@@ -2722,7 +2722,7 @@ export const ThreadFeed = memo(function ThreadFeed({
       return;
     const listState = listRef.current?.getState();
     if (listState) {
-      transitionEndFollow({ type: "content-size-change", isAtEnd: listState.isAtEnd });
+      transitionEndFollow({ type, isAtEnd: listState.isAtEnd });
     }
   };
   const handleScrollBeginDrag = () => {
@@ -3293,13 +3293,16 @@ export const ThreadFeed = memo(function ThreadFeed({
             onLoad={() => {
               loadedListKeyRef.current = listMountKey;
               setLoadedListKey(listMountKey);
+              reportGeometryChange("layout");
             }}
             // Row positions start below the header; the reflow anchor converts between them.
             onMetricsChange={(metrics) => {
               listHeaderSizeRef.current = metrics.headerSize;
             }}
             onScroll={handleScroll}
-            onContentSizeChange={handleContentSizeChange}
+            onContentSizeChange={() => reportGeometryChange("content-size-change")}
+            // LegendList updates its viewport before forwarding this shared layout callback.
+            onLayout={() => reportGeometryChange("layout")}
             onScrollBeginDrag={handleScrollBeginDrag}
             onScrollEndDrag={handleScrollEndDrag}
             onMomentumScrollBegin={handleMomentumScrollBegin}
